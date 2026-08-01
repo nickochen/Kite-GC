@@ -75,6 +75,11 @@
         <div class="about-tp-note">{$t('about.thirdPartyNote')}</div>
       </div>
 
+      <div class="about-i18n">
+        <span class="about-k">中文翻译</span>
+        <span class="about-v">nickochen (chenccr@qq.com) - ROCWING VTOL</span>
+      </div>
+
       <div class="about-foot">
         <button class="about-close" onclick={close}>{$t('about.close')}</button>
       </div>

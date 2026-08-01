@@ -247,6 +247,13 @@
       draggable="false"
       data-tauri-drag-region
     />
+    <img
+      class="logo user-logo"
+      src="/branding/argus-logo.png"
+      alt="ROCWING VTOL"
+      draggable="false"
+      data-tauri-drag-region
+    />
     {#if collapse < 1}
       <span class="version" data-tauri-drag-region>v{appVersion}</span>
     {/if}

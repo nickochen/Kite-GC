@@ -487,10 +487,12 @@ function isWebrtcAvailable(): boolean {
  *  codec is the capture input format: MJPEG is stream-copied (`-c copy`, the camera's HW JPEG encoder
  *  does the work), raw/H.264 is transcoded to MJPEG for the `<img>` sink. */
 async function startNativeMjpeg(
+  instanceId: string,
   sel: NativeSelection,
   id: string,
 ): Promise<{ url: string; transcode: string }> {
   return await invoke<{ url: string; transcode: string }>('video_native_mjpeg_start', {
+    instanceId,
     id,
     codec: sel.codec,
     width: sel.width,
@@ -499,9 +501,9 @@ async function startNativeMjpeg(
   });
 }
 
-/** Stop the built-in MJPEG server. */
-async function stopNativeMjpeg(): Promise<void> {
-  await invoke('video_native_mjpeg_stop').catch(() => {});
+/** Stop the built-in MJPEG server for this instance. */
+async function stopNativeMjpeg(instanceId: string): Promise<void> {
+  await invoke('video_native_mjpeg_stop', { instanceId }).catch(() => {});
 }
 
 /** Enumerate video input devices. Labels are only populated once permission has
@@ -712,7 +714,7 @@ async function startVideo(): Promise<void> {
  *  source, 69 of them (each ~338 ms) at go2rtc's output. That was the freeze. The transport choice is
  *  irrelevant here for the same reason it was before — ffmpeg negotiates it and reads UDP-only
  *  servers, which is why nothing forces `-rtsp_transport`. */
-async function startMjpegPath(url: string, requireCopy = false): Promise<boolean> {
+async function startMjpegPath(instanceId: string, url: string, requireCopy = false): Promise<boolean> {
   // The image path is ffmpeg's alone now, for the copy as much as for the transcode. Missing ffmpeg
   // is a dead end no reconnect fixes.
   const ffmpeg = await invoke<string | null>('video_ffmpeg_status').catch(() => null);
@@ -729,6 +731,7 @@ async function startMjpegPath(url: string, requireCopy = false): Promise<boolean
     // host that passes the backend's probe yet cannot hold a live stream on the hardware path still
     // ends up with a picture instead of an endless reconnect loop.
     const res = await invoke<{ url: string; transcode: string }>('video_rtsp_mjpeg_start', {
+      instanceId,
       url,
       requireCopy,
       // Two vetoes, either of which forces the software transcode: the user's explicit setting, and
@@ -740,7 +743,7 @@ async function startMjpegPath(url: string, requireCopy = false): Promise<boolean
     // sinks back on screen, which reconnects a consumer and keeps a small board's CPU pinned after
     // the user stopped it.
     if (get(videoState).kind !== 'rtsp' || !get(videoState).enabled) {
-      void stopNativeMjpeg();
+      void stopNativeMjpeg(instanceId);
       return true; // not a failure — the user stopped it
     }
     // 'ffmpeg', always: this path IS an ffmpeg reader, whatever the transport setting says.
@@ -753,8 +756,8 @@ async function startMjpegPath(url: string, requireCopy = false): Promise<boolean
 }
 
 /** Register the source with go2rtc and complete one WebRTC negotiation. Throws on failure. */
-async function negotiateWebrtc(url: string, useFfmpeg: boolean): Promise<void> {
-  await invoke('video_webrtc_start', { url, useFfmpeg, mjpeg: false });
+async function negotiateWebrtc(instanceId: string, url: string, useFfmpeg: boolean): Promise<void> {
+  await invoke('video_webrtc_start', { instanceId, url, useFfmpeg, mjpeg: false });
 
   const pc = new RTCPeerConnection({ iceServers: [] });
   rtcConn = pc;
@@ -784,6 +787,7 @@ async function negotiateWebrtc(url: string, useFfmpeg: boolean): Promise<void> {
   lastIce = { local, remote: [] };
   logVideo('debug', `ICE local candidates (${local.length}, gathering=${pc.iceGatheringState}): ${local.join(' · ') || 'NONE'}`);
   const answerSdp = await invoke<string>('video_webrtc_offer', {
+    instanceId,
     sdp: pc.localDescription?.sdp ?? offer.sdp,
   });
   if (rtcConn !== pc) return;
@@ -1064,19 +1068,19 @@ function scheduleRtspReconnect(): void {
 
 /** Negotiate the RTSP source honouring the connection's transport: udp → ffmpeg reader (reads
  *  UDP-only servers like the UAV-Link Pi); tcp → native go2rtc client; auto → native, then ffmpeg. */
-async function negotiateRtsp(url: string, transport: RtspTransport): Promise<void> {
+async function negotiateRtsp(instanceId: string, url: string, transport: RtspTransport): Promise<void> {
   if (transport === 'udp') {
-    await negotiateWebrtc(url, true);
+    await negotiateWebrtc(instanceId, url, true);
   } else if (transport === 'tcp') {
-    await negotiateWebrtc(url, false);
+    await negotiateWebrtc(instanceId, url, false);
   } else {
     try {
-      await negotiateWebrtc(url, false); // native go2rtc RTSP client
+      await negotiateWebrtc(instanceId, url, false); // native go2rtc RTSP client
     } catch (nativeErr) {
       logVideo('warn', `native go2rtc RTSP reader failed, retrying via ffmpeg: ${nativeErr instanceof Error ? nativeErr.message : String(nativeErr)}`);
       closeRtc();
       if (get(videoState).kind !== 'rtsp' || !get(videoState).enabled) return; // stopped meanwhile
-      await negotiateWebrtc(url, true); // ffmpeg reader fallback
+      await negotiateWebrtc(instanceId, url, true); // ffmpeg reader fallback
     }
   }
 }
@@ -1119,7 +1123,7 @@ async function startRtsp(opts?: { reconnect?: boolean }): Promise<void> {
       logVideo('warn', 'WebRTC is unavailable in this WebView — falling back to the MJPEG image path');
       logVideo('info', `RTSP start ${url} (transport=${transport}, webrtc=false, go2rtc not used)`);
     }
-    if (!(await startMjpegPath(url))) scheduleRtspReconnect();
+    if (!(await startMjpegPath(instanceId, url))) scheduleRtspReconnect();
     return;
   }
 
@@ -1141,7 +1145,7 @@ async function startRtsp(opts?: { reconnect?: boolean }): Promise<void> {
     // any path ever hangs anyway, the loop must keep cycling instead of freezing mid-"Reconnecting…"
     // (a wedged RTSP server once parked go2rtc's answer indefinitely — observed with the UAV-Link Pi).
     await Promise.race([
-      negotiateRtsp(url, transport),
+      negotiateRtsp(instanceId, url, transport),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error('RTSP negotiation timeout')), 20_000),
       ),
@@ -1157,7 +1161,7 @@ async function startRtsp(opts?: { reconnect?: boolean }): Promise<void> {
     // the backend reports an actual stream copy, i.e. the source really was MJPEG. Anything else means
     // the source was H.264 and WebRTC failed for some other reason (server down, transport), where
     // silently settling for a transcode would be a permanent downgrade — so that keeps reconnecting.
-    if (await startMjpegPath(url, true)) {
+    if (await startMjpegPath(instanceId, url, true)) {
       logVideo('warn', 'source is MJPEG, which WebRTC cannot carry — switched to the image path');
       return;
     }
@@ -1201,7 +1205,7 @@ async function startNative(): Promise<void> {
   // always, V4L2 usually), so leaving it running makes the re-open below fail with a busy device —
   // which is exactly what a format/resolution/framerate change does: stop, then start with the new
   // capture spec.
-  await stopNativeMjpeg();
+  await stopNativeMjpeg(instanceId);
   const st = get(videoState);
   const id = st.nativeDevice;
   if (!id) {
@@ -1212,12 +1216,12 @@ async function startNative(): Promise<void> {
   savePrefs();
   const sel = st.nativeSel;
   try {
-    const { url, transcode } = await startNativeMjpeg(sel, id);
+    const { url, transcode } = await startNativeMjpeg(instanceId, sel, id);
     // Same straddled-Stop hazard as the RTSP path: the backend holds this call until the capture
     // produces its first bytes, so a Stop in between runs its `stopNativeMjpeg` before this server
     // even exists. Undo it rather than announcing a feed nobody asked for any more.
     if (get(videoState).kind !== 'native' || !get(videoState).enabled) {
-      void stopNativeMjpeg();
+      void stopNativeMjpeg(instanceId);
       return;
     }
     patch({
@@ -1249,8 +1253,8 @@ function stopVideo(): void {
   clearRtspTimers(); // end the RTSP reconnect loop on an explicit stop
   stopTracks();
   if (wasBackend) {
-    void invoke('video_webrtc_stop').catch(() => {});
-    void stopNativeMjpeg();
+    void invoke('video_webrtc_stop', { instanceId }).catch(() => {});
+    void stopNativeMjpeg(instanceId);
   }
   patch({ enabled: false, status: 'off', error: null, rtspEngine: null, mjpegUrl: null, activeTranscode: null, reconnecting: false, reconnectAttempt: 0 });
   savePrefs();
@@ -1539,7 +1543,9 @@ async function initVideo(): Promise<void> {
   // cannot: on WebKit a multipart `<img>` fires **no** error event when the server closes mid-stream
   // (measured on 2.52.5), so the picture sat on a dead `src` with `complete` still true and nothing
   // ever started a reconnect. One signal, same on every platform and both render paths.
-  void listen('video-mjpeg-ended', () => reportMjpegError()).catch(() => {});
+  void listen('video-mjpeg-ended', (e: { instanceId?: string }) => {
+    if (e?.instanceId === instanceId) reportMjpegError();
+  }).catch(() => {});
   // Skip getUserMedia enumeration at startup on Linux: it drives WebKit's GStreamer capture stack
   // (pipewire), which hangs ~35 s and freezes launch on boxes with an unreachable pipewire (the
   // symptom the native/MJPEG path was meant to avoid). Only the `camera` source needs this list, and

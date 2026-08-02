@@ -15,6 +15,7 @@
 //! Sockets get `TCP_NODELAY` and ffmpeg flushes per packet, so localhost delivery isn't bunched by
 //! Nagle/output buffering (which shows up as sporadic stutter, worse at 60 fps).
 
+use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::process::{Child, ChildStderr, Command, Stdio};
@@ -126,7 +127,7 @@ impl RtspTranscode {
 
 #[derive(Default)]
 pub struct MjpegServer {
-    inner: Mutex<Option<Running>>,
+    inner: Mutex<HashMap<String, Running>>,
 }
 
 struct Running {
@@ -139,21 +140,22 @@ struct Running {
 
 impl MjpegServer {
     pub fn new() -> Self {
-        Self::default()
+        Self { inner: Mutex::new(HashMap::new()) }
     }
 
-    /// Start the MJPEG server. Spawns ffmpeg to read `source` and output MJPEG (stream-copied where
-    /// the input already carries it, transcoded otherwise), then broadcasts its stdout to all
-    /// connected HTTP clients.
+    /// Start an MJPEG server for `instance_id`. Spawns ffmpeg to read `source` and output MJPEG
+    /// (stream-copied where the input already carries it, transcoded otherwise), then broadcasts
+    /// its stdout to all connected HTTP clients.
     ///
     /// Returns the port **only once the source has actually delivered its first bytes** (up to
-    /// `FIRST_FRAME_TIMEOUT`); otherwise everything is torn down again and the error carries ffmpeg's
-    /// own first stderr line. Blocking by design — call it from an async command.
+    /// `FIRST_FRAME_TIMEOUT`); otherwise everything is torn down again and the error carries
+    /// ffmpeg's own first stderr line. Blocking by design — call it from an async command.
     ///
-    /// `on_ended` fires only for a source that dies while live — never for a start that failed, which
-    /// is reported through the return value instead.
-    pub fn start(&self, on_ended: EndedHook, source: &MjpegSource) -> Result<u16, String> {
-        self.stop();
+    /// `on_ended` fires only for a source that dies while live — never for a start that failed,
+    /// which is reported through the return value instead.
+    pub fn start(&self, instance_id: &str, on_ended: EndedHook, source: &MjpegSource) -> Result<u16, String> {
+        // Stop any existing server for this instance before starting a new one.
+        self.stop(instance_id);
 
         let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| format!("bind: {e}"))?;
         // Non-blocking so the accept loop can break out on shutdown.
@@ -302,7 +304,7 @@ impl MjpegServer {
             return Err(msg);
         }
 
-        self.inner.lock().unwrap().replace(Running {
+        self.inner.lock().unwrap().insert(instance_id.to_string(), Running {
             ffmpeg,
             shutdown,
             _accept: accept,
@@ -312,9 +314,10 @@ impl MjpegServer {
         Ok(port)
     }
 
-    pub fn stop(&self) {
+    /// Stop the MJPEG server for a specific `instance_id`. Other instances are unaffected.
+    pub fn stop(&self, instance_id: &str) {
         let mut guard = self.inner.lock().unwrap();
-        if let Some(mut r) = guard.take() {
+        if let Some(mut r) = guard.remove(instance_id) {
             // Signal both threads, then kill ffmpeg — closing stdout unblocks the reader's read().
             r.shutdown.store(true, Ordering::SeqCst);
             let _ = r.ffmpeg.kill();
@@ -322,14 +325,28 @@ impl MjpegServer {
             let _ = r._reader.join();
             let _ = r._accept.join();
             let _ = r._stderr.join();
-            log::info!("MJPEG server stopped");
+            log::info!("MJPEG server ({instance_id}) stopped");
+        }
+    }
+
+    /// Stop all running MJPEG servers. Used from program exit and Drop.
+    pub fn stop_all(&self) {
+        let mut guard = self.inner.lock().unwrap();
+        for (id, mut r) in guard.drain() {
+            r.shutdown.store(true, Ordering::SeqCst);
+            let _ = r.ffmpeg.kill();
+            let _ = r.ffmpeg.wait();
+            let _ = r._reader.join();
+            let _ = r._accept.join();
+            let _ = r._stderr.join();
+            log::info!("MJPEG server ({id}) stopped");
         }
     }
 }
 
 impl Drop for MjpegServer {
     fn drop(&mut self) {
-        self.stop();
+        self.stop_all();
     }
 }
 

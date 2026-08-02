@@ -673,7 +673,7 @@ pub fn run() {
             if matches!(event, tauri::RunEvent::Exit) {
                 use tauri::Manager;
                 app.state::<Go2Rtc>().stop();
-                app.state::<MjpegServer>().stop();
+                app.state::<MjpegServer>().stop_all();
             }
         });
 }

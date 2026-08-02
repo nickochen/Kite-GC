@@ -10,7 +10,8 @@
 //! AlexxIT/go2rtc releases. We run one local instance bound to 127.0.0.1 on an ephemeral port and
 //! drive it over its HTTP API (add stream + WebRTC SDP exchange), proxied from Rust to avoid CORS.
 
-use std::io::{BufRead, Read};
+use std::collections::HashSet;
+use std::io::{BufRead, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -208,6 +209,7 @@ fn extract_from_zip(zip_bytes: &[u8], target: &Path) -> Result<(), String> {
 struct Running {
     child: Child,
     api_port: u16,
+    active_streams: HashSet<String>,
 }
 
 /// Managed Tauri state: at most one local go2rtc process bound to 127.0.0.1.
@@ -392,28 +394,19 @@ impl Go2Rtc {
         }
 
         log::info!("go2rtc running on 127.0.0.1:{api_port}");
-        *guard = Some(Running { child, api_port });
+        *guard = Some(Running { child, api_port, active_streams: HashSet::new() });
         Ok(api_port)
     }
 
-    /// Stop the running go2rtc process (if any). Idempotent.
-    ///
-    /// Best-effort graceful teardown first: DELETE the stream via the API so go2rtc reaps its
-    /// spawned ffmpeg readers. A bare `child.kill()` orphans them (observed on Windows): the
-    /// leaked readers keep holding RTSP sessions on the remote server — which wedged the
-    /// UAV-Link Pi's shared media (new sessions starved until a server restart).
+    /// Stop the running go2rtc process (if any). Deletes all tracked streams gracefully first.
     pub fn stop(&self) {
-        if let Some(mut r) = self.inner.lock().unwrap().take() {
-            delete_stream_blocking(r.api_port);
-            // Give go2rtc a moment to terminate the ffmpeg producer before the hard kill.
+        let mut guard = self.inner.lock().unwrap();
+        if let Some(mut r) = guard.take() {
+            // Graceful: delete every tracked stream so go2rtc reaps its ffmpeg readers.
+            for name in &r.active_streams {
+                delete_stream_blocking(r.api_port, name);
+            }
             std::thread::sleep(Duration::from_millis(300));
-            // Anything still parented to go2rtc after the DELETE is a producer it failed to reap, and
-            // `child.kill()` below does not take it with it — it is merely reparented to init, where
-            // nothing links it back to us any more. `kill_stale_readers` cannot help either: it
-            // identifies readers by their `rtsp://127.0.0.1:<port>/kite` publish target, and the MJPEG
-            // path's producer writes to a pipe (`-f mjpeg -`) and has no such target. Observed on a
-            // Pi 4: a full-rate 720p transcode kept running after Stop, with go2rtc already gone.
-            // Collect BEFORE the kill — afterwards the parent link is lost.
             let strays = child_pids(r.child.id());
             let _ = r.child.kill();
             let _ = r.child.wait();
@@ -422,6 +415,49 @@ impl Go2Rtc {
                 kill_pid(pid);
             }
             log::info!("go2rtc stopped (was on :{}).", r.api_port);
+        }
+    }
+
+    /// Register a stream name as active in the running go2rtc instance.
+    /// Call AFTER the HTTP PUT registration succeeded.
+    pub fn track_stream(&self, stream_name: &str) {
+        if let Some(mut r) = self.inner.lock().unwrap().as_mut() {
+            // Re-spawn the process if it was dead (unlikely, but defensive).
+            if matches!(r.child.try_wait(), Ok(Some(_))) {
+                drop(r); // release the MutexGuard before re-entrancy
+                let _ = self.ensure_running();
+                return;
+            }
+            r.active_streams.insert(stream_name.to_string());
+        }
+    }
+
+    /// De-register a stream from go2rtc. Kills the go2rtc process when no streams remain.
+    pub fn unregister_stream(&self, stream_name: &str) {
+        // Phase 1: HTTP DELETE outside the lock (I/O should not hold the Mutex).
+        let api_port = {
+            let guard = self.inner.lock().unwrap();
+            guard.as_ref().map(|r| r.api_port)
+        };
+        if let Some(port) = api_port {
+            delete_stream_blocking(port, stream_name);
+            std::thread::sleep(Duration::from_millis(150));
+        }
+        // Phase 2: remove from tracking + conditional kill.
+        let mut guard = self.inner.lock().unwrap();
+        if let Some(r) = guard.as_mut() {
+            r.active_streams.remove(stream_name);
+            if r.active_streams.is_empty() {
+                let mut r = guard.take().unwrap();
+                let strays = child_pids(r.child.id());
+                let _ = r.child.kill();
+                let _ = r.child.wait();
+                for pid in strays {
+                    log::warn!("[video] go2rtc left a producer behind (pid {pid}) — killing it");
+                    kill_pid(pid);
+                }
+                log::info!("go2rtc stopped (was on :{}).", r.api_port);
+            }
         }
     }
 }
@@ -435,17 +471,16 @@ impl Drop for Go2Rtc {
     }
 }
 
-/// Raw-HTTP `DELETE /api/streams?src=kite` against the local go2rtc API (std TcpStream — this runs
+/// Raw-HTTP `DELETE /api/streams?src=<stream_name>` against the local go2rtc API (std TcpStream — this runs
 /// in sync contexts like `stop()`/app-exit where no async runtime is guaranteed). Best-effort.
-fn delete_stream_blocking(api_port: u16) {
+fn delete_stream_blocking(api_port: u16, stream_name: &str) {
     let addr: SocketAddr = ([127, 0, 0, 1], api_port).into();
     if let Ok(mut s) = TcpStream::connect_timeout(&addr, Duration::from_millis(300)) {
         let _ = s.set_write_timeout(Some(Duration::from_millis(300)));
         let _ = s.set_read_timeout(Some(Duration::from_millis(500)));
         let req = format!(
-            "DELETE /api/streams?src=kite HTTP/1.1\r\nHost: 127.0.0.1:{api_port}\r\nConnection: close\r\n\r\n"
+            "DELETE /api/streams?src={stream_name} HTTP/1.1\r\nHost: 127.0.0.1:{api_port}\r\nConnection: close\r\n\r\n"
         );
-        use std::io::{Read as _, Write as _};
         let _ = s.write_all(req.as_bytes());
         let mut buf = [0u8; 256];
         let _ = s.read(&mut buf); // wait for the response so go2rtc actually processed it

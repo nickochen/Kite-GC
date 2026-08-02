@@ -11,12 +11,6 @@
     video2,
     type VideoRouter,
     bindVideoEl,
-    setFloatPos,
-    setFloatSnapped,
-    setFloatHeightFrac,
-    setMapLocation,
-    toggleFloating,
-    reportMjpegError,
   } from '$lib/stores/video';
   import { canvasSink, mjpegSink } from '$lib/controllers/mjpegSink';
   import VideoReconnectOverlay from '$lib/components/video/VideoReconnectOverlay.svelte';
@@ -95,7 +89,7 @@
     if (!moved && Math.hypot(dx, dy) < 4) return;
     if (!moved) {
       moved = true;
-      setFloatSnapped(false); // first real movement detaches from the corner
+      current.setFloatSnapped(false); // first real movement detaches from the corner
     }
     const nx = Math.max(0, Math.min(baseLeft + dx, vw - width));
     const ny = Math.max(0, Math.min(baseTop + dy, vh - height));

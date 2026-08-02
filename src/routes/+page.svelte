@@ -83,7 +83,7 @@
   import WidgetPanel from "$lib/components/WidgetPanel.svelte";
   import { LARGE_BASE_VMIN } from "$lib/config/widgetRegistry";
   import FloatingVideoWindow from "$lib/components/video/FloatingVideoWindow.svelte";
-import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMapLocation, setFloatHeightFrac, setFloatPos, registerPiPElement, reportMjpegError } from "$lib/stores/video";
+import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMapLocation, setFloatHeightFrac, setFloatPos, reportMjpegError } from "$lib/stores/video";
 // Per-instance store aliases for the dual-video layout logic.
 const video1State = $derived(video1.videoState);
 const video2State = $derived(video2.videoState);
@@ -220,18 +220,21 @@ const video2Stream = $derived(video2.videoStream);
     }
   });
 
-  // Persistent (always-mounted) source element for native Picture-in-Picture, so
-  // the PiP window survives closing the Video panel. Hidden but rendered/playing.
-  let pipVideoEl = $state<HTMLVideoElement | null>(null);
+  // Persistent (always-mounted) source elements for native Picture-in-Picture, so
+  // the PiP window survives closing the Video panel. One per instance.
+  let pipVideoEl1 = $state<HTMLVideoElement | null>(null);
+  let pipVideoEl2 = $state<HTMLVideoElement | null>(null);
   $effect(() => {
-    // Bind to the active video stream
     if ($video1State.enabled && $video1State.status === 'live') {
-      video1.bindVideoEl(pipVideoEl, $video1Stream);
-      if (pipVideoEl) video1.registerPiPElement(pipVideoEl);
-    } else if ($video2State.enabled && $video2State.status === 'live') {
-      video2.bindVideoEl(pipVideoEl, $video2Stream);
-      if (pipVideoEl) video2.registerPiPElement(pipVideoEl);
+      video1.bindVideoEl(pipVideoEl1, $video1Stream);
     }
+    if ($video2State.enabled && $video2State.status === 'live') {
+      video2.bindVideoEl(pipVideoEl2, $video2Stream);
+    }
+  });
+  $effect(() => {
+    if (pipVideoEl1) video1.registerPiPElement(pipVideoEl1);
+    if (pipVideoEl2) video2.registerPiPElement(pipVideoEl2);
   });
 
   // Global UI scale (1 = 100%, up to 2). Zooms the chrome via `.ui-scale`; the map
@@ -2915,7 +2918,9 @@ const video2Stream = $derived(video2.videoStream);
 
   <!-- Persistent hidden source for native Picture-in-Picture (survives panel close) -->
   <!-- svelte-ignore a11y_media_has_caption -->
-  <video bind:this={pipVideoEl} class="pip-source" autoplay muted playsinline></video>
+  <!-- Persistent PiP source elements: one per instance -->
+  <video bind:this={pipVideoEl1} class="pip-source" autoplay muted playsinline></video>
+  <video bind:this={pipVideoEl2} class="pip-source" autoplay muted playsinline></video>
 
   <!-- ======= FLOATING VIDEO WINDOWS ======= -->
   <FloatingVideoWindow instanceId="video1" />

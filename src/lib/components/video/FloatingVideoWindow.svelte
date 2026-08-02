@@ -21,12 +21,14 @@
   import VideoReconnectOverlay from '$lib/components/video/VideoReconnectOverlay.svelte';
 
   // Which video instance this floating window belongs to ('video1' or 'video2')
-  let instanceId = $state<'video1' | 'video2'>('video1');
+  let { instanceId = 'video1' }: { instanceId?: 'video1' | 'video2' } = $props();
   const current: VideoRouter = $derived(instanceId === 'video1' ? video1 : video2);
   const videoState = $derived(current.videoState);
   const videoStream = $derived(current.videoStream);
 
-  const mapHere = $derived($videoState.mapLocation === 'floating');
+  const mapHere = $derived(
+    instanceId === 'video1' ? $videoState.mapLocation === 'floating' : $videoState.mapLocation === 'floating2',
+  );
 
   let vw = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
   let vh = $state(typeof window !== 'undefined' ? window.innerHeight : 720);
@@ -248,7 +250,7 @@
          instead, and the body is omitted. Double-click the video → the map jumps into this frame. -->
     {#if !mapHere}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="fw-body" onpointerdown={onBodyPointerDown} ondblclick={() => current.setMapLocation('floating')}>
+      <div class="fw-body" onpointerdown={onBodyPointerDown} ondblclick={() => current.setMapLocation(instanceId === 'video1' ? 'floating' : 'floating2')}>
         {#if $videoState.status === 'live' && $videoState.mjpegUrl}
           <!-- Native / MJPEG feed (no MediaStream): drawn by the off-thread reader where the WebView
                allows it, otherwise the plain <img> multipart stream. -->

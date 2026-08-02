@@ -84,6 +84,12 @@
   import { LARGE_BASE_VMIN } from "$lib/config/widgetRegistry";
   import FloatingVideoWindow from "$lib/components/video/FloatingVideoWindow.svelte";
 import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMapLocation, setFloatHeightFrac, setFloatPos, registerPiPElement, reportMjpegError } from "$lib/stores/video";
+// Per-instance store aliases for the dual-video layout logic.
+const video1State = $derived(video1.videoState);
+const video2State = $derived(video2.videoState);
+const video1Stream = $derived(video1.videoStream);
+const video2Stream = $derived(video2.videoStream);
+
   import { canvasSink, mjpegSink } from "$lib/controllers/mjpegSink";
   import { lowPowerActive } from "$lib/stores/lowPower";
   import { initPulseBlink } from "$lib/stores/pulseBlink";
@@ -192,13 +198,13 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
   let winH = $state(typeof window !== 'undefined' ? window.innerHeight : 720);
   // Width the bottom dock must yield to the bottom-left snapped video window(s).
   const videoReserve1 = $derived(
-    $video1.videoState.floating && $video1.videoState.floatSnapped
-      ? Math.min($video1.videoState.floatHeightFrac * winH * ($video1.videoState.aspect || 16 / 9), winW * 0.7) + 16
+    $video1State.floating && $video1State.floatSnapped
+      ? Math.min($video1State.floatHeightFrac * winH * ($video1State.aspect || 16 / 9), winW * 0.7) + 16
       : 0,
   );
   const videoReserve2 = $derived(
-    $video2.videoState.floating && $video2.videoState.floatSnapped
-      ? Math.min($video2.videoState.floatHeightFrac * winH * ($video2.videoState.aspect || 16 / 9), winW * 0.7) + 16
+    $video2State.floating && $video2State.floatSnapped
+      ? Math.min($video2State.floatHeightFrac * winH * ($video2State.aspect || 16 / 9), winW * 0.7) + 16
       : 0,
   );
   const videoReserve = $derived(Math.max(videoReserve1, videoReserve2));
@@ -207,10 +213,10 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
   let mapVideoEl = $state<HTMLVideoElement | null>(null);
   $effect(() => {
     // Bind to the active video stream (video1 or video2)
-    if ($video1.videoState.mapLocation !== 'main' && $video1.videoState.status === 'live') {
-      video1.bindVideoEl(mapVideoEl, $video1.videoStream);
-    } else if ($video2.videoState.mapLocation !== 'main' && $video2.videoState.status === 'live') {
-      video2.bindVideoEl(mapVideoEl, $video2.videoStream);
+    if ($video1State.mapLocation !== 'main' && $video1State.status === 'live') {
+      video1.bindVideoEl(mapVideoEl, $video1Stream);
+    } else if ($video2State.mapLocation !== 'main' && $video2State.status === 'live') {
+      video2.bindVideoEl(mapVideoEl, $video2Stream);
     }
   });
 
@@ -219,11 +225,11 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
   let pipVideoEl = $state<HTMLVideoElement | null>(null);
   $effect(() => {
     // Bind to the active video stream
-    if ($video1.videoState.enabled && $video1.videoState.status === 'live') {
-      video1.bindVideoEl(pipVideoEl, $video1.videoStream);
+    if ($video1State.enabled && $video1State.status === 'live') {
+      video1.bindVideoEl(pipVideoEl, $video1Stream);
       if (pipVideoEl) video1.registerPiPElement(pipVideoEl);
-    } else if ($video2.videoState.enabled && $video2.videoState.status === 'live') {
-      video2.bindVideoEl(pipVideoEl, $video2.videoStream);
+    } else if ($video2State.enabled && $video2State.status === 'live') {
+      video2.bindVideoEl(pipVideoEl, $video2Stream);
       if (pipVideoEl) video2.registerPiPElement(pipVideoEl);
     }
   });
@@ -242,30 +248,30 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
 
   // Video 1 rect
   const floatH1 = $derived(
-    Math.min(Math.round(0.3 * winH), Math.max(FLOAT_MIN_H, Math.round($video1.videoState.floatHeightFrac * winH))),
+    Math.min(Math.round(0.3 * winH), Math.max(FLOAT_MIN_H, Math.round($video1State.floatHeightFrac * winH))),
   );
-  const floatW1 = $derived(Math.min(Math.round(floatH1 * ($video1.videoState.aspect || 16 / 9)), Math.round(winW * 0.7)));
-  const floatLeft1 = $derived($video1.videoState.floatSnapped ? 8 : $video1.videoState.floatX);
-  const floatTop1 = $derived($video1.videoState.floatSnapped ? winH - floatH1 - 30 : $video1.videoState.floatY);
+  const floatW1 = $derived(Math.min(Math.round(floatH1 * ($video1State.aspect || 16 / 9)), Math.round(winW * 0.7)));
+  const floatLeft1 = $derived($video1State.floatSnapped ? 8 : $video1State.floatX);
+  const floatTop1 = $derived($video1State.floatSnapped ? winH - floatH1 - 30 : $video1State.floatY);
 
   // Video 2 rect
   const floatH2 = $derived(
-    Math.min(Math.round(0.3 * winH), Math.max(FLOAT_MIN_H, Math.round($video2.videoState.floatHeightFrac * winH))),
+    Math.min(Math.round(0.3 * winH), Math.max(FLOAT_MIN_H, Math.round($video2State.floatHeightFrac * winH))),
   );
-  const floatW2 = $derived(Math.min(Math.round(floatH2 * ($video2.videoState.aspect || 16 / 9)), Math.round(winW * 0.7)));
-  const floatLeft2 = $derived($video2.videoState.floatSnapped ? 8 : $video2.videoState.floatX);
-  const floatTop2 = $derived($video2.videoState.floatSnapped ? winH - floatH2 - 30 : $video2.videoState.floatY);
+  const floatW2 = $derived(Math.min(Math.round(floatH2 * ($video2State.aspect || 16 / 9)), Math.round(winW * 0.7)));
+  const floatLeft2 = $derived($video2State.floatSnapped ? 8 : $video2State.floatX);
+  const floatTop2 = $derived($video2State.floatSnapped ? winH - floatH2 - 30 : $video2State.floatY);
 
   // The single map jumps to whichever video surface was double-clicked:
   // `floating` → video1 floating window, `floating2` → video2 floating window
   // `widget` → video1 widget, `widget2` → video2 widget. `main` (default) = full-screen map.
-  const mapInFrame = $derived(($video1.videoState.mapLocation !== 'main' || $video2.videoState.mapLocation !== 'main') &&
-    (($video1.videoState.mapLocation !== 'main' && $video1.videoState.status === 'live') ||
-     ($video2.videoState.mapLocation !== 'main' && $video2.videoState.status === 'live')));
-  const mapFloating1 = $derived($video1.videoState.mapLocation === 'floating');
-  const mapFloating2 = $derived($video2.videoState.mapLocation === 'floating2');
-  const mapInWidget1 = $derived($video1.videoState.mapLocation === 'widget');
-  const mapInWidget2 = $derived($video2.videoState.mapLocation === 'widget2');
+  const mapInFrame = $derived(($video1State.mapLocation !== 'main' || $video2State.mapLocation !== 'main') &&
+    (($video1State.mapLocation !== 'main' && $video1State.status === 'live') ||
+     ($video2State.mapLocation !== 'main' && $video2State.status === 'live')));
+  const mapFloating1 = $derived($video1State.mapLocation === 'floating');
+  const mapFloating2 = $derived($video2State.mapLocation === 'floating2');
+  const mapInWidget1 = $derived($video1State.mapLocation === 'widget');
+  const mapInWidget2 = $derived($video2State.mapLocation === 'widget2');
   const mapFrameStyle1 = $derived(
     `left:${floatLeft1 * uiScale}px; top:${floatTop1 * uiScale}px; width:${floatW1 * uiScale}px; height:${floatH1 * uiScale}px;`,
   );
@@ -278,19 +284,19 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
       ? mapFrameStyle1
       : mapFloating2
         ? mapFrameStyle2
-        : $video1.videoState.widgetRect
-          ? `left:${$video1.videoState.widgetRect.x}px; top:${$video1.videoState.widgetRect.y}px; width:${$video1.videoState.widgetRect.w}px; height:${$video1.videoState.widgetRect.h}px;`
-          : $video2.videoState.widgetRect2
-            ? `left:${$video2.videoState.widgetRect2.x}px; top:${$video2.videoState.widgetRect2.y}px; width:${$video2.videoState.widgetRect2.w}px; height:${$video2.videoState.widgetRect2.h}px;`
+        : $video1State.widgetRect
+          ? `left:${$video1State.widgetRect.x}px; top:${$video1State.widgetRect.y}px; width:${$video1State.widgetRect.w}px; height:${$video1State.widgetRect.h}px;`
+          : $video2State.widgetRect2
+            ? `left:${$video2State.widgetRect2.x}px; top:${$video2State.widgetRect2.y}px; width:${$video2State.widgetRect2.w}px; height:${$video2State.widgetRect2.h}px;`
             : '',
   );
 
   // Safety: if the video feed drops while the map is parked on a video surface, bring it back.
   $effect(() => {
-    if ($video1.videoState.mapLocation !== 'main' && $video1.videoState.status !== 'live') {
+    if ($video1State.mapLocation !== 'main' && $video1State.status !== 'live') {
       untrack(() => video1.setMapLocation('main'));
     }
-    if ($video2.videoState.mapLocation !== 'main' && $video2.videoState.status !== 'live') {
+    if ($video2State.mapLocation !== 'main' && $video2State.status !== 'live') {
       untrack(() => video2.setMapLocation('main'));
     }
   });
@@ -314,14 +320,14 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
     // Determine which video instance is active
     if (mapFloating1 || mapInWidget1) {
       activeVideo = 'video1';
-      mrStartFrac = $video1.videoState.floatHeightFrac;
+      mrStartFrac = $video1State.floatHeightFrac;
       mrStartBottom = floatTop1 + floatH1;
-      mrSnapped = $video1.videoState.floatSnapped;
+      mrSnapped = $video1State.floatSnapped;
     } else {
       activeVideo = 'video2';
-      mrStartFrac = $video2.videoState.floatHeightFrac;
+      mrStartFrac = $video2State.floatHeightFrac;
       mrStartBottom = floatTop2 + floatH2;
-      mrSnapped = $video2.videoState.floatSnapped;
+      mrSnapped = $video2State.floatSnapped;
     }
     window.addEventListener('pointermove', miniResizeMove);
     window.addEventListener('pointerup', miniResizeUp);
@@ -333,10 +339,10 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
     const newFrac = Math.min(0.3, Math.max(fracMin, mrStartFrac + delta));
     if (activeVideo === 'video1') {
       video1.setFloatHeightFrac(newFrac);
-      if (!mrSnapped) video1.setFloatPos($video1.videoState.floatX, mrStartBottom - newFrac * winH);
+      if (!mrSnapped) video1.setFloatPos($video1State.floatX, mrStartBottom - newFrac * winH);
     } else {
       video2.setFloatHeightFrac(newFrac);
-      if (!mrSnapped) video2.setFloatPos($video2.videoState.floatX, mrStartBottom - newFrac * winH);
+      if (!mrSnapped) video2.setFloatPos($video2State.floatX, mrStartBottom - newFrac * winH);
     }
   }
   function miniResizeUp() {
@@ -351,7 +357,7 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
   let savedMapViewMode: '2d' | '3d' = '2d';
   let savedMode2d: 'free' | 'follow' | 'heading-follow' = 'free';
   $effect(() => {
-    const lock = (mapInWidget1 || mapInWidget2) && ($video1.videoState.status === 'live' || $video2.videoState.status === 'live');
+    const lock = (mapInWidget1 || mapInWidget2) && ($video1State.status === 'live' || $video2State.status === 'live');
     untrack(() => {
       if (lock && !miniLockActive) {
         miniLockActive = true;
@@ -2529,7 +2535,7 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
         {mapViewMode}
         onToggleMapView={toggleMapView}
         bind:viewMode={map2dViewMode}
-        miniControls={mapInWidget}
+        miniControls={mapInWidget1 || mapInWidget2}
         radarActive={radarSettings.enabled}
         radarMapSettings={radarSettings.map}
         {radarReference}
@@ -2579,10 +2585,17 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
   <!-- Floating-frame map controls — top-level/unzoomed so they sit ABOVE the in-frame map (z2); the
        float-win's own corners live in .ui-scale (z1) and would be hidden behind it. Only for the
        floating frame (resizable); the widget tile is sized by the dock. ✕ sends the map back to main. -->
-  {#if mapFloating && $videoState.status === 'live'}
+  {#if mapFloating1 && $video1State.status === 'live'}
     <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="miniframe-ctl" style={mapFrameStyle}>
-      <button class="mf-corner mf-close" onclick={() => setMapLocation('main')} title={$t('video.close')}>✕</button>
+    <div class="miniframe-ctl" style={mapFrameStyle1}>
+      <button class="mf-corner mf-close" onclick={() => video1.setMapLocation('main')} title={$t('video.close')}>✕</button>
+      <div class="mf-corner mf-resize" onpointerdown={miniResizeDown} title="Resize"></div>
+    </div>
+  {/if}
+  {#if mapFloating2 && $video2State.status === 'live'}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="miniframe-ctl" style={mapFrameStyle2}>
+      <button class="mf-corner mf-close" onclick={() => video2.setMapLocation('main')} title={$t('video.close')}>✕</button>
       <div class="mf-corner mf-resize" onpointerdown={miniResizeDown} title="Resize"></div>
     </div>
   {/if}
@@ -2644,12 +2657,12 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
     <div class="map-video-wrap">
       {#if mapFloating1 || mapInWidget1}
         <!-- Video 1 is active -->
-        {#if $video1.videoState.mjpegUrl}
+        {#if $video1State.mjpegUrl}
           {#if $canvasSink}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <canvas
               class="map-video"
-              class:mirror={$video1.videoState.mirror}
+              class:mirror={$video1State.mirror}
               use:mjpegSink
               ondblclick={() => video1.setMapLocation('main')}
             ></canvas>
@@ -2658,8 +2671,8 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
             <!-- svelte-ignore a11y_missing_attribute -->
             <img
               class="map-video"
-              class:mirror={$video1.videoState.mirror}
-              src={$video1.videoState.mjpegUrl}
+              class:mirror={$video1State.mirror}
+              src={$video1State.mjpegUrl}
               ondblclick={() => video1.setMapLocation('main')}
               onerror={video1.reportMjpegError}
             />
@@ -2669,7 +2682,7 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
             class="map-video"
-            class:mirror={$video1.videoState.mirror}
+            class:mirror={$video1State.mirror}
             bind:this={mapVideoEl}
             autoplay
             muted
@@ -2679,12 +2692,12 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
         {/if}
       {:else if mapFloating2 || mapInWidget2}
         <!-- Video 2 is active -->
-        {#if $video2.videoState.mjpegUrl}
+        {#if $video2State.mjpegUrl}
           {#if $canvasSink}
             <!-- svelte-ignore a11y_no_static_element_interactions -->
             <canvas
               class="map-video"
-              class:mirror={$video2.videoState.mirror}
+              class:mirror={$video2State.mirror}
               use:mjpegSink
               ondblclick={() => video2.setMapLocation('main')}
             ></canvas>
@@ -2693,8 +2706,8 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
             <!-- svelte-ignore a11y_missing_attribute -->
             <img
               class="map-video"
-              class:mirror={$video2.videoState.mirror}
-              src={$video2.videoState.mjpegUrl}
+              class:mirror={$video2State.mirror}
+              src={$video2State.mjpegUrl}
               ondblclick={() => video2.setMapLocation('main')}
               onerror={video2.reportMjpegError}
             />
@@ -2704,7 +2717,7 @@ import { video1, video2, initVideo, videoState, videoStream, bindVideoEl, setMap
           <!-- svelte-ignore a11y_media_has_caption -->
           <video
             class="map-video"
-            class:mirror={$video2.videoState.mirror}
+            class:mirror={$video2State.mirror}
             bind:this={mapVideoEl}
             autoplay
             muted

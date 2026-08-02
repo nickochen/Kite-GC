@@ -19,14 +19,18 @@
   import VideoReconnectOverlay from '$lib/components/video/VideoReconnectOverlay.svelte';
 
   // Which video instance this widget displays ('video1' or 'video2')
-  let instanceId = $state<'video1' | 'video2'>('video1');
+  let {
+    instanceId = 'video1',
+    width = 300,
+    height = 150,
+  }: { instanceId?: 'video1' | 'video2'; width?: number; height?: number } = $props();
   const current: VideoRouter = $derived(instanceId === 'video1' ? video1 : video2);
   const videoState = $derived(current.videoState);
   const videoStream = $derived(current.videoStream);
 
-  let { width = 300, height = 150 }: { width?: number; height?: number } = $props();
-
-  const mapHere = $derived($videoState.mapLocation === 'widget');
+  const mapHere = $derived(
+    instanceId === 'video1' ? $videoState.mapLocation === 'widget' : $videoState.mapLocation === 'widget2',
+  );
 
   let cardEl = $state<HTMLDivElement | null>(null);
   let videoEl = $state<HTMLVideoElement | null>(null);
@@ -37,7 +41,9 @@
   function measure() {
     if (!cardEl) return;
     const r = cardEl.getBoundingClientRect();
-    current.setWidgetRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+    const rect = { x: r.left, y: r.top, w: r.width, h: r.height };
+    if (instanceId === 'video1') current.setWidgetRect(rect);
+    else current.setWidgetRect2(rect);
   }
   $effect(() => {
     void width;
@@ -58,13 +64,14 @@
     };
   });
   onDestroy(() => {
-    current.setWidgetRect(null);
+    if (instanceId === 'video1') current.setWidgetRect(null);
+    else current.setWidgetRect2(null);
     if (mapHere) current.setMapLocation('main'); // tile gone → don't strand the map
   });
 
   function swapHere() {
     if ($videoState.status !== 'live' || mapHere) return;
-    current.setMapLocation('widget');
+    current.setMapLocation(instanceId === 'video1' ? 'widget' : 'widget2');
   }
 </script>
 

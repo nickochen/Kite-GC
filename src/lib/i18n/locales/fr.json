@@ -615,6 +615,9 @@
   },
   "video": {
     "title": "Vidéo",
+    "instance": "Instance vidéo",
+    "video1": "Vidéo 1",
+    "video2": "Vidéo 2",
     "start": "Démarrer la vidéo",
     "stop": "Arrêter la vidéo",
     "starting": "Démarrage…",
@@ -648,7 +651,10 @@
     "pip": "Image dans l'image",
     "close": "Fermer",
     "noDevices": "Aucune caméra détectée. Branchez une caméra ou un boîtier de capture USB.",
+    "noGetUserMedia": "getUserMedia n'est pas disponible dans cet environnement de navigateur.",
+    "noRtspUrl": "Aucune URL RTSP spécifiée.",
     "noNativeDevices": "Aucun périphérique de capture natif trouvé. Branchez un dongle HDMI USB ou une carte de capture.",
+    "noNativeDevice": "Aucun périphérique de capture natif sélectionné.",
     "ffmpegNativeMissing": "ffmpeg est requis pour la capture native — il accède directement au matériel (V4L2 / DirectShow / AVFoundation).",
     "pipeline": {
       "hw": "Matériel",

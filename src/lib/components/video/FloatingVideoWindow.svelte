@@ -4,22 +4,11 @@
 -->
 
 <script lang="ts">
-  // Floating video window — a chromeless in-app overlay sink for the video router.
-  //  • snaps to the bottom-left corner (above the status bar; the bottom widget dock reflows out of
-  //    the way — handled in +page.svelte) or floats freely
-  //  • drag the video body to move (away from the corner un-snaps; dropping near the corner re-snaps)
-  //  • TOP-RIGHT corner grip resizes (aspect-locked, 10–30 % of vh, touch-friendly)
-  //  • TOP-LEFT ✕ closes (swaps back first if it was primary)
-  //  • double-click the video to swap it with the map (→ videoPrimary)
-  //
-  // No title bar (space is precious on a flight display). Layering: separate absolutely-positioned
-  // layers share the page stacking context (the .float-win wrapper has no z-index). The map (rendered
-  // top-level in +page when swapped) composes between the frosted background (z 60) and the corner
-  // controls (z 62), so the mini-map stays interactive while close/resize stay usable.
   import { t } from 'svelte-i18n';
   import {
-    videoStream,
-    videoState,
+    video1,
+    video2,
+    type VideoRouter,
     bindVideoEl,
     setFloatPos,
     setFloatSnapped,
@@ -31,7 +20,12 @@
   import { canvasSink, mjpegSink } from '$lib/controllers/mjpegSink';
   import VideoReconnectOverlay from '$lib/components/video/VideoReconnectOverlay.svelte';
 
-  // True while the map occupies this floating frame (so this window shows the map, not video).
+  // Which video instance this floating window belongs to ('video1' or 'video2')
+  let instanceId = $state<'video1' | 'video2'>('video1');
+  const current: VideoRouter = $derived(instanceId === 'video1' ? video1 : video2);
+  const videoState = $derived(current.videoState);
+  const videoStream = $derived(current.videoStream);
+
   const mapHere = $derived($videoState.mapLocation === 'floating');
 
   let vw = $state(typeof window !== 'undefined' ? window.innerWidth : 1280);
@@ -47,8 +41,6 @@
   const SNAP_THRESHOLD = 56;
   const FRAC_MIN = 0.1;
   const FRAC_MAX = 0.3;
-  // Floor the height so the mini-map's 4 stacked control buttons (4×38 + 3×8 gap + 8 bottom offset +
-  // breathing room) never overflow the frame in videoPrimary mode.
   const MIN_H_PX = 200;
 
   let floatWinEl = $state<HTMLDivElement | null>(null);
@@ -61,13 +53,10 @@
   const left = $derived($videoState.floatSnapped ? MARGIN : $videoState.floatX);
   const top = $derived($videoState.floatSnapped ? vh - height - SNAP_BOTTOM : $videoState.floatY);
 
-  // This ✕ only shows while the window holds video → it closes the floating window. (When the map is
-  // in the frame, +page renders its own ✕ on top that sends the map back to the main view instead.)
   function closeWindow() {
-    toggleFloating();
+    current.toggleFloating();
   }
 
-  // ── Drag (from the video body) ─────────────────────────────────────
   let pendingDrag = false;
   let moved = false;
   let startX = 0;
@@ -97,7 +86,7 @@
     }
     const nx = Math.max(0, Math.min(baseLeft + dx, vw - width));
     const ny = Math.max(0, Math.min(baseTop + dy, vh - height));
-    setFloatPos(nx, ny);
+    current.setFloatPos(nx, ny);
   }
   function onDragUp() {
     window.removeEventListener('pointermove', onDragMove);
@@ -105,15 +94,11 @@
     if (!pendingDrag) return;
     pendingDrag = false;
     if (!moved) return;
-    // Re-snap if dropped near the bottom-left corner.
     const nearLeft = $videoState.floatX <= MARGIN + SNAP_THRESHOLD;
     const nearBottom = $videoState.floatY + height >= vh - SNAP_BOTTOM - SNAP_THRESHOLD;
-    if (nearLeft && nearBottom) setFloatSnapped(true);
+    if (nearLeft && nearBottom) current.setFloatSnapped(true);
   }
 
-  // ── Resize (top-right handle) ──────────────────────────────────────
-  // Dragging the top-right corner grows the window up + right with the bottom-left anchored:
-  // up = bigger, and for a free (un-snapped) window we move the top so the bottom edge stays put.
   let resizing = false;
   let resizeStartY = 0;
   let startFrac = 0;
@@ -134,10 +119,9 @@
     const delta = (resizeStartY - e.clientY) / vh; // drag up → larger
     const fracMin = Math.max(FRAC_MIN, MIN_H_PX / vh); // honour the 4-button px floor
     const newFrac = Math.min(FRAC_MAX, Math.max(fracMin, startFrac + delta));
-    setFloatHeightFrac(newFrac);
+    current.setFloatHeightFrac(newFrac);
     if (!startSnapped) {
-      // Keep the bottom edge fixed (top-right grip): top = bottom − newHeight.
-      setFloatPos($videoState.floatX, startBottom - newFrac * vh);
+      current.setFloatPos($videoState.floatX, startBottom - newFrac * vh);
     }
   }
   function onResizeUp() {
@@ -146,11 +130,6 @@
     window.removeEventListener('pointerup', onResizeUp);
   }
 
-  // ── Mini-map move (videoPrimary) — right mouse / two-finger ─────────
-  // In primary mode the frame holds the interactive map, so left-drag/single-touch pan the map. To
-  // MOVE the frame we grab with the right mouse button (desktop) or two fingers (touch); pinch-zoom
-  // is sacrificed there (the zoom buttons + follow mode cover it). Window-level capture so we run
-  // before Leaflet and can stop it seeing the gesture.
   let fmActive = false;
   let fmStartX = 0;
   let fmStartY = 0;
@@ -177,9 +156,9 @@
     if (!fmMoved && Math.hypot(dx, dy) < 4) return;
     if (!fmMoved) {
       fmMoved = true;
-      setFloatSnapped(false);
+      current.setFloatSnapped(false);
     }
-    setFloatPos(
+    current.setFloatPos(
       Math.max(0, Math.min(fmBaseLeft + dx, vw - width)),
       Math.max(0, Math.min(fmBaseTop + dy, vh - height)),
     );
@@ -190,13 +169,9 @@
     if (!fmMoved) return;
     const nearLeft = $videoState.floatX <= MARGIN + SNAP_THRESHOLD;
     const nearBottom = $videoState.floatY + height >= vh - SNAP_BOTTOM - SNAP_THRESHOLD;
-    if (nearLeft && nearBottom) setFloatSnapped(true);
+    if (nearLeft && nearBottom) current.setFloatSnapped(true);
   }
 
-  // Narrow $derived, deliberately not a raw `$videoState.floating` read inside the effect: that would
-  // tie the effect to the WHOLE video store, and the handlers below write to it (setFloatPos /
-  // setFloatSnapped) — so all seven window listeners were torn down and re-registered on every single
-  // pointermove of a drag (and on every unrelated store patch, e.g. a reconnect-attempt tick).
   const gestureCapture = $derived($videoState.floating && mapHere);
   $effect(() => {
     if (!gestureCapture) return;
@@ -263,6 +238,9 @@
 {#if $videoState.floating}
   <!-- No z-index on the wrapper → no stacking context; layers compose with the top-level map. -->
   <div bind:this={floatWinEl} class="float-win" style="left:{left}px; top:{top}px; width:{width}px; height:{height}px;">
+    <!-- Instance indicator badge -->
+    <div class="fw-instance-badge">{instanceId === 'video1' ? 'Video 1' : 'Video 2'}</div>
+
     <!-- frame background (behind) — border + shadow only; the video/map covers it (object-fit: cover) -->
     <div class="fw-bg"></div>
 
@@ -270,7 +248,7 @@
          instead, and the body is omitted. Double-click the video → the map jumps into this frame. -->
     {#if !mapHere}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="fw-body" onpointerdown={onBodyPointerDown} ondblclick={() => setMapLocation('floating')}>
+      <div class="fw-body" onpointerdown={onBodyPointerDown} ondblclick={() => current.setMapLocation('floating')}>
         {#if $videoState.status === 'live' && $videoState.mjpegUrl}
           <!-- Native / MJPEG feed (no MediaStream): drawn by the off-thread reader where the WebView
                allows it, otherwise the plain <img> multipart stream. -->
@@ -278,7 +256,7 @@
             <canvas use:mjpegSink class:mirror={$videoState.mirror}></canvas>
           {:else}
             <!-- svelte-ignore a11y_missing_attribute -->
-            <img src={$videoState.mjpegUrl} class:mirror={$videoState.mirror} onerror={reportMjpegError} />
+            <img src={$videoState.mjpegUrl} class:mirror={$videoState.mirror} onerror={current.reportMjpegError} />
           {/if}
         {:else if $videoState.status === 'live'}
           <!-- svelte-ignore a11y_media_has_caption -->
@@ -306,12 +284,20 @@
 <style>
   .float-win {
     position: absolute;
-    /* No z-index on purpose (see script header). */
-    pointer-events: none; /* layers opt back in individually */
   }
-  /* Frame background — border + shadow only. No backdrop-filter: the video/map always covers this
-     layer (object-fit: cover), so the blur was never visible, and on WebKitGTK it triggered a
-     compositing artifact (a flickering blurry mini-copy) over the <img> MJPEG-fallback feed. */
+  .fw-instance-badge {
+    position: absolute;
+    top: 4px;
+    left: 8px;
+    z-index: 65;
+    background: rgba(0, 0, 0, 0.6);
+    color: #e0e0e0;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 10px;
+    font-weight: 600;
+    pointer-events: none;
+  }
   .fw-bg {
     position: absolute;
     inset: 0;
@@ -331,7 +317,6 @@
     overflow: hidden;
     border-radius: 8px;
     cursor: grab;
-    touch-action: none; /* let pointer-drag move the window instead of scrolling/panning */
   }
   .fw-body:active {
     cursor: grabbing;
@@ -343,8 +328,6 @@
     height: 100%;
     object-fit: cover;
     display: block;
-    /* Own compositing layer — see VideoWidget: keeps the 60 fps MJPEG <img> from dirtying shared
-       layer tiles every frame on WebKitGTK. */
     will-change: transform;
   }
   .fw-body video.mirror,
@@ -362,7 +345,6 @@
     font-size: 12px;
   }
 
-  /* Corner controls — overlay the content corners (no title bar); touch-sized. */
   .fw-corner {
     position: absolute;
     top: 0;
@@ -394,7 +376,6 @@
     right: 0;
     cursor: nesw-resize;
     border-radius: 0 8px 0 8px;
-    /* visible grab affordance in the top-right corner */
     background: linear-gradient(225deg, rgba(55, 168, 219, 0.85) 42%, transparent 42%);
   }
   .fw-resize:hover {

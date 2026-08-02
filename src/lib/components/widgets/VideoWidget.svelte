@@ -4,20 +4,25 @@
 -->
 
 <script lang="ts">
-  // Video widget (2×1 wide) — a router sink showing the shared video feed.
-  // Crop-to-fill (object-fit: cover) so the 2:1 tile is always full (too small
-  // to read OSD anyway). Standard widget card with a thin rounded frame around
-  // the video. No settings — the NavRail Video panel owns all control.
-  //
-  // Double-click swaps: the single map instance jumps INTO this tile (locked to a 2D heading-follow
-  // nav view by +page), and the other surfaces show video. To do that, +page overlays the top-level
-  // map onto this tile, so we publish our on-screen rect; when the map is here we render an empty
-  // tile underneath it.
   import { t } from 'svelte-i18n';
   import { onMount, onDestroy } from 'svelte';
-  import { videoStream, videoState, bindVideoEl, setMapLocation, setWidgetRect, reportMjpegError } from '$lib/stores/video';
+  import {
+    video1,
+    video2,
+    type VideoRouter,
+    bindVideoEl,
+    setMapLocation,
+    setWidgetRect,
+    reportMjpegError,
+  } from '$lib/stores/video';
   import { canvasSink, mjpegSink } from '$lib/controllers/mjpegSink';
   import VideoReconnectOverlay from '$lib/components/video/VideoReconnectOverlay.svelte';
+
+  // Which video instance this widget displays ('video1' or 'video2')
+  let instanceId = $state<'video1' | 'video2'>('video1');
+  const current: VideoRouter = $derived(instanceId === 'video1' ? video1 : video2);
+  const videoState = $derived(current.videoState);
+  const videoStream = $derived(current.videoStream);
 
   let { width = 300, height = 150 }: { width?: number; height?: number } = $props();
 
@@ -29,15 +34,11 @@
     bindVideoEl(videoEl, $videoStream);
   });
 
-  // Publish the tile's screen rect so +page can overlay the map on it in `widget` mode.
   function measure() {
     if (!cardEl) return;
     const r = cardEl.getBoundingClientRect();
-    setWidgetRect({ x: r.left, y: r.top, w: r.width, h: r.height });
+    current.setWidgetRect({ x: r.left, y: r.top, w: r.width, h: r.height });
   }
-  // Re-measure when the tile's size changes (dock reflow / UI scale come through the width/height
-  // props). MUST NOT read $videoState here — measure() writes it (widgetRect), which would re-trigger
-  // this effect and loop. Position-only moves are caught by the ResizeObserver + window resize below.
   $effect(() => {
     void width;
     void height;
@@ -57,13 +58,13 @@
     };
   });
   onDestroy(() => {
-    setWidgetRect(null);
-    if (mapHere) setMapLocation('main'); // tile gone → don't strand the map
+    current.setWidgetRect(null);
+    if (mapHere) current.setMapLocation('main'); // tile gone → don't strand the map
   });
 
   function swapHere() {
     if ($videoState.status !== 'live' || mapHere) return;
-    setMapLocation('widget');
+    current.setMapLocation('widget');
   }
 </script>
 
@@ -80,7 +81,7 @@
       <canvas use:mjpegSink class:mirror={$videoState.mirror}></canvas>
     {:else}
       <!-- svelte-ignore a11y_missing_attribute -->
-      <img src={$videoState.mjpegUrl} class:mirror={$videoState.mirror} onerror={reportMjpegError} />
+      <img src={$videoState.mjpegUrl} class:mirror={$videoState.mirror} onerror={current.reportMjpegError} />
     {/if}
   {:else if $videoState.status === 'live'}
     <!-- svelte-ignore a11y_media_has_caption -->
@@ -102,13 +103,13 @@
 <style>
   .widget-card {
     box-sizing: border-box;
-    position: relative; /* anchor for the reconnect overlay */
     background: rgba(30, 30, 30, 0.75);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.08);
     border-radius: 8px;
     padding: 3px;
     overflow: hidden;
+    position: relative;
   }
   video,
   img,
@@ -125,10 +126,6 @@
   video,
   img,
   canvas {
-    object-fit: cover; /* crop to fill the 2:1 tile */
-    /* Own compositing layer: a 60 fps feed then only re-rasters/uploads its own rect instead of
-       dirtying the shared content layer's tiles every frame (matters on WebKitGTK/Pi; <video> gets a
-       layer anyway, the MJPEG <img> does NOT unless promoted). */
     will-change: transform;
   }
   video.mirror,
@@ -144,6 +141,5 @@
     font-size: 12px;
   }
   .placeholder.map-here {
-    color: #555; /* faint — the map is drawn on top of this tile */
   }
 </style>

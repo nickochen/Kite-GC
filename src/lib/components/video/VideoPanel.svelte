@@ -8,44 +8,20 @@
   // PanelShell. Header = Start/Stop; content = preview + source/resolution/mirror settings;
   // footer = Floating Window (mode button) + Video Window/detach (button).
   // Kept deliberately simple but extensible (more sinks/sources can slot into the content field).
+  //
+  // DUAL-VIDEO: Now supports two independent video routers (video1 and video2). The panel
+  // includes a selector at the top to switch which router it configures/previews.
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import {
-    videoState,
-    videoStream,
-    videoRtcStats,
-    bindVideoEl,
-    reportVideoSize,
-    enumerateVideoDevices,
-    toggleVideo,
-    setVideoDevice,
-    setVideoResolution,
-    setCameraFps,
-    setVideoMirror,
-    setDisableHwAccel,
-    setVideoKind,
-    setRtspUrl,
-    setRtspTransport,
-    saveRtspConnection,
-    updateRtspConnection,
-    removeRtspConnection,
-    selectRtspConnection,
-    reportMjpegError,
-    isWebrtcAvailable,
-    type RtspTransport,
-    toggleFloating,
-    enterPiP,
-    pipSupported,
+    video1,
+    video2,
     type VideoResolution,
     type VideoKind,
     type CameraFps,
-    enumerateNativeDevices,
-    setNativeDevice,
-    setNativeResolution,
-    setNativeFramerate,
-    setNativeCodec,
+    type RtspTransport,
   } from '$lib/stores/video';
   import { canvasSink, mjpegSink, mjpegStats } from '$lib/controllers/mjpegSink';
   import {
@@ -61,14 +37,23 @@
   import { isLinux } from '$lib/platform';
   import VideoReconnectOverlay from '$lib/components/video/VideoReconnectOverlay.svelte';
 
+  // Currently selected video instance (video1 or video2)
+  let selectedInstance = $state<'video1' | 'video2'>('video1');
+  const current = $derived(selectedInstance === 'video1' ? video1 : video2);
+  const videoState = $derived(current.videoState);
+  const videoStream = $derived(current.videoStream);
+  const videoRtcStats = $derived(current.videoRtcStats);
+  const isWebrtcAvailable = $derived(current.isWebrtcAvailable);
+  const pipSupported = $derived(typeof document !== 'undefined' && !!document.pictureInPictureEnabled);
+
+  // Component state
   let videoEl = $state<HTMLVideoElement | null>(null);
-  // Which saved RTSP connection is being edited inline (null = none).
   let editingRtspId = $state<string | null>(null);
   const inputVal = (e: Event) => (e.currentTarget as HTMLInputElement).value;
 
   // Bind the preview element to the shared MediaStream (camera or rtsp via captureStream).
   $effect(() => {
-    bindVideoEl(videoEl, $videoStream);
+    current.bindVideoEl(videoEl, $videoStream);
   });
 
   // Populate the getUserMedia device list. It is only consumed by the `camera` source; on Linux,
@@ -84,7 +69,7 @@
   // stale). A $derived boolean re-evaluates but only propagates when it actually flips.
   const needCameraList = $derived(!isLinux || $videoState.kind === 'camera');
   $effect(() => {
-    if (needCameraList) void enumerateVideoDevices();
+    if (needCameraList) void current.enumerateVideoDevices();
   });
 
   // ── RTSP / V4L2 dependencies ──────────────────────────────────────────
@@ -143,7 +128,7 @@
       await invoke('video_ffmpeg_download');
       await checkFfmpeg();
       // On Windows/macOS enumeration itself needs ffmpeg — refresh the native device list now.
-      void enumerateNativeDevices();
+      void current.enumerateNativeDevices();
     } catch (e) {
       ffmpegMsg = e instanceof Error ? e.message : String(e);
     } finally {
@@ -157,7 +142,7 @@
     // Native capture devices: enumerated once per panel open (the Rust backend reads V4L2 sysfs /
     // DirectShow / AVFoundation). Deliberately NOT in an $effect — it writes `nativeDevices` back into
     // the video store, which would make any store-reading effect re-trigger itself (see above).
-    void enumerateNativeDevices();
+    void current.enumerateNativeDevices();
     const unlisteners: UnlistenFn[] = [];
     void listen<{ pct: number; msg: string }>('go2rtc-download-progress', (e) => {
       enginePct = e.payload.pct;
@@ -176,7 +161,7 @@
   // go2rtc is only needed for the WebRTC path. A WebView without it (WebKitGTK builds with WebRTC
   // compiled out — Raspberry Pi OS among them) runs RTSP entirely on ffmpeg now, so demanding the
   // engine there would block a machine that already has everything it needs.
-  const needsEngine = isWebrtcAvailable();
+  const needsEngine = $derived(isWebrtcAvailable());
 
   // MJPEG FPS counter — onload fires per frame in multipart streams.
   let mjpegFps = $state(0);
@@ -191,7 +176,7 @@
   function mjpegFrame(e: Event): void {
     mjpegFrameTick();
     const img = e.currentTarget as HTMLImageElement;
-    if (img.naturalWidth) reportVideoSize(img.naturalWidth, img.naturalHeight);
+    if (img.naturalWidth) current.reportVideoSize(img.naturalWidth, img.naturalHeight);
   }
 
   function mjpegFrameTick(): void {
@@ -337,10 +322,20 @@
 </script>
 
 {#snippet headerActions()}
+  <div class="vp-header-selector">
+    <span class="label">{$t('video.instance')}</span>
+    <select
+      value={selectedInstance}
+      onchange={(e) => selectedInstance = (e.currentTarget as HTMLSelectElement).value as 'video1' | 'video2'}
+    >
+      <option value="video1">{$t('video.video1')}</option>
+      <option value="video2">{$t('video.video2')}</option>
+    </select>
+  </div>
   <Button
     variant={$videoState.enabled ? 'danger' : 'data'}
     disabled={!$videoState.enabled && $videoState.kind === 'rtsp' && needsEngine && engineChecked && !engineVer}
-    onclick={toggleVideo}
+    onclick={current.toggleVideo}
   >
     {$videoState.enabled ? $t('video.stop') : $t('video.start')}
   </Button>
@@ -361,7 +356,7 @@
             alt="Live video"
             class:mirror={$videoState.mirror}
             onload={mjpegFrame}
-            onerror={reportMjpegError}
+            onerror={current.reportMjpegError}
           />
         {/if}
       {:else}
@@ -373,7 +368,7 @@
           playsinline
           class:mirror={$videoState.mirror}
           class:hidden={$videoState.status !== 'live'}
-          onloadedmetadata={(e) => reportVideoSize(e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
+          onloadedmetadata={(e) => current.reportVideoSize(e.currentTarget.videoWidth, e.currentTarget.videoHeight)}
           onerror={() => console.error('[video] element error', videoEl?.error?.code, videoEl?.error?.message)}
           onloadeddata={() => console.log('[video] loadeddata, readyState', videoEl?.readyState)}
           onstalled={() => console.warn('[video] stalled')}
@@ -429,7 +424,7 @@
       <span class="label">{$t('video.source')}</span>
       <select
         value={$videoState.kind}
-        onchange={(e) => setVideoKind((e.currentTarget as HTMLSelectElement).value as VideoKind)}
+        onchange={(e) => current.setVideoKind((e.currentTarget as HTMLSelectElement).value as VideoKind)}
       >
         {#each KINDS as k}
           <option value={k}>{$t(`video.kind.${k}`)}</option>
@@ -442,7 +437,7 @@
         <span class="label">{$t('video.device')}</span>
         <select
           value={$videoState.deviceId ?? ''}
-          onchange={(e) => setVideoDevice((e.currentTarget as HTMLSelectElement).value || null)}
+          onchange={(e) => current.setVideoDevice((e.currentTarget as HTMLSelectElement).value || null)}
         >
           <option value="">{$t('video.defaultDevice')}</option>
           {#each $videoState.devices as d}
@@ -455,7 +450,7 @@
         <span class="label">{$t('video.resolution')}</span>
         <select
           value={$videoState.resolution}
-          onchange={(e) => setVideoResolution((e.currentTarget as HTMLSelectElement).value as VideoResolution)}
+          onchange={(e) => current.setVideoResolution((e.currentTarget as HTMLSelectElement).value as VideoResolution)}
         >
           {#each RESOLUTIONS as r}
             <option value={r}>{r === 'auto' ? $t('video.auto') : r}</option>
@@ -467,7 +462,7 @@
         <span class="label">{$t('video.framerate')}</span>
         <select
           value={$videoState.cameraFps}
-          onchange={(e) => setCameraFps((e.currentTarget as HTMLSelectElement).value as CameraFps)}
+          onchange={(e) => current.setCameraFps((e.currentTarget as HTMLSelectElement).value as CameraFps)}
         >
           {#each CAMERA_FPS as f}
             <option value={f}>{f === 'auto' ? $t('video.auto') : `${f} fps`}</option>
@@ -483,7 +478,7 @@
         <span class="label">{$t('video.device')}</span>
         <select
           value={$videoState.nativeDevice ?? ''}
-          onchange={(e) => setNativeDevice((e.currentTarget as HTMLSelectElement).value || null)}
+          onchange={(e) => current.setNativeDevice((e.currentTarget as HTMLSelectElement).value || null)}
         >
           {#each $videoState.nativeDevices as d}
             <option value={d.id}>{d.name}</option>
@@ -498,7 +493,7 @@
           <span class="label">{$t('video.format')}</span>
           <select
             value={$videoState.nativeSel.codec}
-            onchange={(e) => void setNativeCodec((e.currentTarget as HTMLSelectElement).value)}
+            onchange={(e) => void current.setNativeCodec((e.currentTarget as HTMLSelectElement).value)}
           >
             {#each nativeCodecs as c}
               <option value={c}>{codecLabel(c)}</option>
@@ -512,7 +507,7 @@
             value={`${$videoState.nativeSel.width}x${$videoState.nativeSel.height}`}
             onchange={(e) => {
               const [w, h] = (e.currentTarget as HTMLSelectElement).value.split('x').map(Number);
-              void setNativeResolution(w, h);
+              void current.setNativeResolution(w, h);
             }}
           >
             {#each nativeResolutions as r}
@@ -525,7 +520,7 @@
           <span class="label">{$t('video.framerate')}</span>
           <select
             value={String($videoState.nativeSel.fps)}
-            onchange={(e) => setNativeFramerate(Number((e.currentTarget as HTMLSelectElement).value))}
+            onchange={(e) => current.setNativeFramerate(Number((e.currentTarget as HTMLSelectElement).value))}
           >
             {#each nativeFramerates as f}
               <option value={String(f)}>{f} fps</option>
@@ -560,13 +555,13 @@
             type="text"
             placeholder="rtsp://192.168.1.10:554/cam"
             value={$videoState.rtspUrl}
-            onchange={(e) => setRtspUrl(inputVal(e))}
+            onchange={(e) => current.setRtspUrl(inputVal(e))}
           />
           <select
             class="rtsp-transport"
             value={$videoState.rtspTransport}
             title={$t('video.rtspTransportHint')}
-            onchange={(e) => setRtspTransport((e.currentTarget as HTMLSelectElement).value as RtspTransport)}
+            onchange={(e) => current.setRtspTransport((e.currentTarget as HTMLSelectElement).value as RtspTransport)}
           >
             <option value="auto">{$t('video.rtspAuto')}</option>
             <option value="udp">UDP</option>
@@ -577,7 +572,7 @@
             title={$t('video.rtspSave')}
             aria-label={$t('video.rtspSave')}
             disabled={!$videoState.rtspUrl.trim()}
-            onclick={saveRtspConnection}
+            onclick={current.saveRtspConnection}
           >💾</button>
         </div>
       </div>
@@ -592,18 +587,18 @@
                   class="rtsp-edit rtsp-edit-name"
                   placeholder={$t('video.rtspName')}
                   value={c.name}
-                  onchange={(e) => updateRtspConnection(c.id, { name: inputVal(e) })}
+                  onchange={(e) => current.updateRtspConnection(c.id, { name: inputVal(e) })}
                 />
                 <input
                   class="rtsp-edit"
                   placeholder="rtsp://…"
                   value={c.url}
-                  onchange={(e) => updateRtspConnection(c.id, { url: inputVal(e) })}
+                  onchange={(e) => current.updateRtspConnection(c.id, { url: inputVal(e) })}
                 />
                 <select
                   class="rtsp-transport"
                   value={c.transport}
-                  onchange={(e) => updateRtspConnection(c.id, { transport: (e.currentTarget as HTMLSelectElement).value as RtspTransport })}
+                  onchange={(e) => current.updateRtspConnection(c.id, { transport: (e.currentTarget as HTMLSelectElement).value as RtspTransport })}
                 >
                   <option value="auto">{$t('video.rtspAuto')}</option>
                   <option value="udp">UDP</option>
@@ -611,12 +606,12 @@
                 </select>
                 <button class="rtsp-item-btn" title={$t('video.rtspDone')} aria-label={$t('video.rtspDone')} onclick={() => (editingRtspId = null)}>✓</button>
               {:else}
-                <button class="rtsp-item-main" title={c.url} onclick={() => selectRtspConnection(c.id)}>
+                <button class="rtsp-item-main" title={c.url} onclick={() => current.selectRtspConnection(c.id)}>
                   <span class="rtsp-item-name">{c.name || c.url}</span>
                   <span class="rtsp-item-transport">{c.transport === 'auto' ? $t('video.rtspAuto') : c.transport.toUpperCase()}</span>
                 </button>
                 <button class="rtsp-item-btn" title={$t('video.rtspEdit')} aria-label={$t('video.rtspEdit')} onclick={() => (editingRtspId = c.id)}>✎</button>
-                <button class="rtsp-item-btn del" title={$t('video.rtspDelete')} aria-label={$t('video.rtspDelete')} onclick={() => removeRtspConnection(c.id)}>✕</button>
+                <button class="rtsp-item-btn del" title={$t('video.rtspDelete')} aria-label={$t('video.rtspDelete')} onclick={() => current.removeRtspConnection(c.id)}>✕</button>
               {/if}
             </div>
           {/each}
@@ -667,7 +662,7 @@
     {/if}
 
     <div class="field-row">
-      <Toggle checked={$videoState.mirror} onchange={(c) => setVideoMirror(c)} id="vp-mirror" />
+      <Toggle checked={$videoState.mirror} onchange={(c) => current.setVideoMirror(c)} id="vp-mirror" />
       <span class="label">{$t('video.mirror')}</span>
     </div>
 
@@ -676,7 +671,7 @@
     <div class="field-row">
       <Toggle
         checked={$videoState.disableHwAccel}
-        onchange={(c) => void setDisableHwAccel(c)}
+        onchange={(c) => void current.setDisableHwAccel(c)}
         id="vp-no-hwaccel"
       />
       <span class="label">{$t('video.disableHwAccel')}</span>
@@ -688,7 +683,7 @@
 {#snippet footer()}
   <div class="vp-footer">
     <!-- Floating window: a mode button (active = on) — can be toggled off from here. -->
-    <Button variant="mode" active={$videoState.floating} onclick={() => toggleFloating()}>
+    <Button variant="mode" active={$videoState.floating} onclick={() => current.toggleFloating()}>
       {$t('video.floatingWindow')}
     </Button>
     <!-- Detached PiP window: a one-way action (can't be closed from inside the app) → plain button.
@@ -697,7 +692,7 @@
       <Button
         variant="standard"
         disabled={$videoState.status !== 'live' || !!$videoState.mjpegUrl}
-        onclick={enterPiP}
+        onclick={current.enterPiP}
       >
         {$t('video.videoWindow')}
       </Button>
@@ -710,6 +705,22 @@
 </div>
 
 <style>
+  .vp-header-selector {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-right: 8px;
+  }
+  .vp-header-selector select {
+    height: 28px;
+    padding: 0 8px;
+    background: #434343;
+    color: #e0e0e0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+
   .vp-body { display: flex; flex-direction: column; gap: 12px; }
 
   .preview {
@@ -798,109 +809,26 @@
     border-radius: 4px;
     font-size: 12px;
   }
-  .hint { font-size: 11px; color: #777; margin: 0; }
-  .hint.err { color: #d40000; }
-
-  /* RTSP direct-connect row + saved-connection list */
-  .rtsp-url-row { display: flex; align-items: center; gap: 6px; }
-  .rtsp-url-row .text-input { flex: 1; min-width: 0; }
-  .rtsp-transport {
-    height: 28px;
-    padding: 0 6px;
-    background: #434343;
-    color: #e0e0e0;
-    border: 1px solid #555;
-    border-radius: 4px;
-    font-size: 12px;
-    flex: 0 0 auto;
-  }
-  .rtsp-save {
-    height: 28px;
-    min-width: 30px;
-    padding: 0 6px;
-    background: #37a8db;
-    color: #fff;
-    border: none;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .rtsp-save:disabled { opacity: 0.4; cursor: not-allowed; }
-
-  .rtsp-list { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
-  .rtsp-item {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    background: #2e2e2e;
-    border: 1px solid #272727;
-    border-radius: 4px;
-    padding: 3px 4px 3px 6px;
-  }
-  .rtsp-item.active { border-color: rgba(55, 168, 219, 0.75); }
-  .rtsp-item-main {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-    background: none;
-    border: none;
-    color: #e0e0e0;
-    cursor: pointer;
-    text-align: left;
-    padding: 3px 2px;
-    font-size: 12px;
-  }
-  .rtsp-item-main:hover .rtsp-item-name { color: #37a8db; }
-  .rtsp-item-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .rtsp-item-transport { flex: 0 0 auto; font-size: 10px; color: #949494; letter-spacing: 0.04em; }
-  .rtsp-item-btn {
-    flex: 0 0 auto;
-    width: 24px;
-    height: 24px;
-    background: none;
-    border: none;
-    color: #949494;
-    cursor: pointer;
-    border-radius: 3px;
-    font-size: 12px;
-  }
-  .rtsp-item-btn:hover { background: #3a3a3a; color: #e0e0e0; }
-  .rtsp-item-btn.del:hover { background: rgba(212, 0, 0, 0.3); color: #ff4444; }
-  .rtsp-edit {
-    flex: 1;
-    min-width: 0;
-    height: 26px;
-    padding: 0 6px;
-    background: #434343;
-    color: #e0e0e0;
-    border: 1px solid #555;
-    border-radius: 4px;
-    font-size: 12px;
-  }
-  .rtsp-edit-name { flex: 0 0 90px; }
-
-  .ffmpeg-box {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 8px;
-    background: rgba(255, 255, 255, 0.04);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 4px;
-  }
+  .hint { font-size: 11px; color: #888; margin: 0; }
+  .hint.err { color: #e06c6c; }
+  .ffmpeg-box { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; }
   .dl-row { display: flex; align-items: center; gap: 8px; }
-  .dl-bar {
-    flex: 1;
-    height: 6px;
-    background: #1d1d1d;
-    border-radius: 3px;
-    overflow: hidden;
-  }
-  .dl-fill { height: 100%; background: #37a8db; transition: width 0.2s ease; }
-  .dl-pct { font-size: 11px; color: #9ad0e8; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
-
-  .vp-footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; }
+  .dl-bar { flex: 1; height: 4px; background: #333; border-radius: 2px; overflow: hidden; }
+  .dl-fill { height: 100%; background: #37a8db; transition: width 0.2s; }
+  .dl-pct { font-size: 11px; color: #aaa; width: 36px; text-align: right; }
+  .rtsp-url-row { display: flex; gap: 6px; align-items: center; }
+  .rtsp-transport { height: 28px; padding: 0 8px; background: #434343; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; font-size: 12px; }
+  .rtsp-save { height: 28px; width: 28px; background: #434343; color: #e0e0e0; border: 1px solid #555; border-radius: 4px; cursor: pointer; font-size: 14px; line-height: 1; }
+  .rtsp-save:disabled { opacity: 0.5; cursor: not-allowed; }
+  .rtsp-list { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; }
+  .rtsp-item { display: flex; gap: 6px; align-items: center; padding: 4px; background: #2a2a2a; border-radius: 4px; }
+  .rtsp-item.active { border: 1px solid #37a8db; }
+  .rtsp-item-main { flex: 1; display: flex; align-items: center; gap: 8px; text-align: left; background: transparent; border: none; color: #e0e0e0; cursor: pointer; padding: 0; }
+  .rtsp-item-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rtsp-item-transport { font-size: 10px; color: #888; text-transform: uppercase; }
+  .rtsp-edit { flex: 1; height: 24px; padding: 0 6px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 3px; font-size: 11px; }
+  .rtsp-edit-name { width: 100px; }
+  .rtsp-item-btn { height: 24px; width: 24px; background: #333; color: #e0e0e0; border: 1px solid #555; border-radius: 3px; cursor: pointer; line-height: 1; }
+  .rtsp-item-btn.del { background: #4a2a2a; border-color: #7a3a3a; }
+  .vp-footer { display: flex; gap: 8px; }
 </style>

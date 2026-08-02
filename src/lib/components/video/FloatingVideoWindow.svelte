@@ -5,6 +5,7 @@
 
 <script lang="ts">
   import { t } from 'svelte-i18n';
+  import { writable, get } from 'svelte/store';
   import {
     video1,
     video2,
@@ -23,8 +24,18 @@
   // Which video instance this floating window belongs to ('video1' or 'video2')
   let { instanceId = 'video1' }: { instanceId?: 'video1' | 'video2' } = $props();
   const current: VideoRouter = $derived(instanceId === 'video1' ? video1 : video2);
-  const videoState = $derived(current.videoState);
-  const videoStream = $derived(current.videoStream);
+  // Proxy stores that track the current instance's store — $derived returning a store
+  // reference does not reliably re-subscribe in templates when the reference changes.
+  const videoState = writable(get(current.videoState));
+  const videoStream = writable(get(current.videoStream));
+  $effect(() => {
+    // Re-seed from the new instance's store whenever `current` changes.
+    videoState.set(get(current.videoState));
+    videoStream.set(get(current.videoStream));
+    const unsub1 = current.videoState.subscribe((v) => videoState.set(v));
+    const unsub2 = current.videoStream.subscribe((v) => videoStream.set(v));
+    return () => { unsub1(); unsub2(); };
+  });
 
   const mapHere = $derived(
     instanceId === 'video1' ? $videoState.mapLocation === 'floating' : $videoState.mapLocation === 'floating2',

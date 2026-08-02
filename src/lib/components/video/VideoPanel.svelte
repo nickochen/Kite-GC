@@ -13,6 +13,7 @@
   // includes a selector at the top to switch which router it configures/previews.
   import { t } from 'svelte-i18n';
   import { onMount } from 'svelte';
+  import { writable, get } from 'svelte/store';
   import { invoke } from '@tauri-apps/api/core';
   import { listen, type UnlistenFn } from '@tauri-apps/api/event';
   import {
@@ -40,9 +41,22 @@
   // Currently selected video instance (video1 or video2)
   let selectedInstance = $state<'video1' | 'video2'>('video1');
   const current = $derived(selectedInstance === 'video1' ? video1 : video2);
-  const videoState = $derived(current.videoState);
-  const videoStream = $derived(current.videoStream);
-  const videoRtcStats = $derived(current.videoRtcStats);
+  // Proxy stores that track the current instance's store — $derived returning a store
+  // reference does not reliably re-subscribe in templates when the reference changes.
+  // We use writable stores that are kept in sync with the current instance's store via $effect.
+  const videoState = writable(get(current.videoState));
+  const videoStream = writable(get(current.videoStream));
+  const videoRtcStats = writable(get(current.videoRtcStats));
+  $effect(() => {
+    // Re-seed from the new instance's store whenever `current` changes.
+    videoState.set(get(current.videoState));
+    videoStream.set(get(current.videoStream));
+    videoRtcStats.set(get(current.videoRtcStats));
+    const unsub1 = current.videoState.subscribe((v) => videoState.set(v));
+    const unsub2 = current.videoStream.subscribe((v) => videoStream.set(v));
+    const unsub3 = current.videoRtcStats.subscribe((v) => videoRtcStats.set(v));
+    return () => { unsub1(); unsub2(); unsub3(); };
+  });
   const isWebrtcAvailable = $derived(current.isWebrtcAvailable);
   const pipSupported = $derived(typeof document !== 'undefined' && !!document.pictureInPictureEnabled);
 

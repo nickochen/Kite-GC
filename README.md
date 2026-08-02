@@ -176,6 +176,33 @@ Windows, macOS and Linux for every pull request. Recommended IDE:
 [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) and
 [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer) extensions.
 
+## 中文版
+
+本仓库 Fork 自 [b14ckyy/Kite-GC](https://github.com/b14ckyy/Kite-GC)，已添加简体中文翻译（1729 条，覆盖全部模块），**支持 INAV、ArduPilot、PX4 全部功能的中文界面**。
+
+### 下载安装
+
+👉 **[下载中文版 v1.0.0-zh](https://github.com/nickochen/Kite-GC/releases/tag/v1.0.0-zh)**
+
+或从 [Actions](https://github.com/nickochen/Kite-GC/actions) 页面获取最新构建产物。
+
+### 中文版特色
+
+- **简体中文翻译** — 界面、提示、设置全部中文化
+- **ROCWING VTOL 品牌标识** — 顶部栏添加 ROCWING 标志
+- **与官方版同步** — 基于 Kite-GC 最新代码，功能完全一致
+
+### 中文翻译贡献
+
+- **翻译**：nickochen (chenccr@qq.com)
+- **开源**：https://github.com/nickochen/Kite-GC
+
+---
+
+## Original — Kite Ground Control (English)
+
+Kite Ground Control (Kite GC) is a modern, cross-platform ground control station for **INAV**, **ArduPilot** and **PX4** aircraft — planes, multirotors, VTOL, helicopters, rovers and boats. See above for full details.
+
 ## License
 
 [GPL-3.0-or-later](LICENSE) — Copyright © 2026 Marc Hoffmann ([b14ckyy](https://github.com/b14ckyy)).

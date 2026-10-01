@@ -1863,5 +1863,22 @@
     "km": "km",
     "kmh": "km/h",
     "ms": "m/s"
+  },
+  "v5": {
+    "modebar": {
+      "emergency": "NOTFALL",
+      "emergencyHint": "1,5 s gedrückt halten, um die Motoren zwangsweise zu stoppen",
+      "safety": "Sicherheit"
+    },
+    "vtol": {
+      "tiltServoCh": "Neigeservo-Kanäle",
+      "channel": "Kanal",
+      "unset": "Nicht gesetzt",
+      "tiltProgress": "Neigefortschritt",
+      "fwdUs": "PWM Horizontalflug",
+      "hovUs": "PWM Schwebeflug",
+      "calHint": "Prüfung: Neigung zum Horizontalflug sollte ≈0° zeigen, Schwebeflug ≈90°; bei Umkehr die beiden PWM-Werte tauschen",
+      "toLevel": "Neigung → horizontal"
+    }
   }
 }

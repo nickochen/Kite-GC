@@ -1863,5 +1863,63 @@
     "km": "km",
     "kmh": "km/h",
     "ms": "m/s"
+  },
+  "v5": {
+    "topbar": {
+      "title": "Tilt-Rotor Y3 Flight Monitor",
+      "linkConnected": "Link connected",
+      "linkDown": "Link down",
+      "gpsNoFix": "No GPS fix",
+      "paramProtect": "Parameter protection",
+      "unknown": "Unknown",
+      "flightTime": "Flight time",
+      "onboard": "Onboard",
+      "classicUi": "Classic UI",
+      "panels": "Panels"
+    },
+    "telemetry": {
+      "title": "Telemetry",
+      "flightState": "Flight state",
+      "flying": "Flying",
+      "standby": "Standby",
+      "curMode": "Current mode",
+      "altitude": "Altitude",
+      "airspeed": "Airspeed",
+      "groundspeed": "Ground speed",
+      "battery": "Battery",
+      "remaining": "Remaining",
+      "used": "Used",
+      "link": "Link",
+      "linkQuality": "Link quality",
+      "wind": "Wind speed",
+      "windDir": "Wind direction",
+      "log": "System log",
+      "noLog": "No log entries"
+    },
+    "vtol": {
+      "title": "Tilt & VTOL",
+      "roll": "Roll",
+      "pitch": "Pitch",
+      "yaw": "Yaw",
+      "heading": "Heading",
+      "tiltTransition": "Tilt transition state",
+      "tiltServoFL": "Front-left tilt servo",
+      "tiltServoFR": "Front-right tilt servo",
+      "noData": "Waiting for FC data",
+      "mode": "Mode",
+      "tiltServoCh": "Tilt servo channels",
+      "channel": "Channel",
+      "unset": "Unset",
+      "tiltProgress": "Tilt progress",
+      "fwdUs": "Level-flight PWM",
+      "hovUs": "Hover PWM",
+      "calHint": "Check: tilt to level flight should read ≈0°, hover ≈90°; swap the two PWM values if reversed",
+      "toLevel": "Tilt → level"
+    },
+    "modebar": {
+      "emergency": "EMERGENCY",
+      "emergencyHint": "Hold 1.5 s to force-disarm the motors",
+      "safety": "Safety"
+    }
   }
 }

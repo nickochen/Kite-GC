@@ -17,6 +17,7 @@
   import type { PortInfo, BleDeviceInfo, TransportType, ProtocolType } from '$lib/stores/connection';
   import type { TelemetryData } from '$lib/stores/telemetry';
   import { settings } from '$lib/stores/settings';
+  import { v5mode } from '$lib/stores/v5mode';
 
   let {
     appVersion,
@@ -388,6 +389,13 @@
     {#if !connOnSecondRow}
       <div class="port-controls">{@render connectionControls()}</div>
     {/if}
+    <button
+      class="relay-toggle"
+      onclick={() => v5mode.set(true)}
+      title={$t('v5.topbar.title')}
+    >
+      ✈ v5
+    </button>
     <button
       class="relay-toggle"
       class:open={relayOpen}

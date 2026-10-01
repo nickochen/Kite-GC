@@ -1716,5 +1716,22 @@
     "km": "km",
     "kmh": "km/h",
     "ms": "m/s"
+  },
+  "v5": {
+    "modebar": {
+      "emergency": "URGENCE",
+      "emergencyHint": "Maintenir 1,5 s pour arrêter les moteurs de force",
+      "safety": "Sécurité"
+    },
+    "vtol": {
+      "tiltServoCh": "Canaux des servos d'inclinaison",
+      "channel": "Canal",
+      "unset": "Non défini",
+      "tiltProgress": "Progression d'inclinaison",
+      "fwdUs": "PWM vol à plat",
+      "hovUs": "PWM stationnaire",
+      "calHint": "Vérification : incliné en vol à plat ≈0°, en stationnaire ≈90° ; inversez les deux valeurs PWM si inversé",
+      "toLevel": "Inclinaison → à plat"
+    }
   }
 }

@@ -85,6 +85,9 @@ export function toTelemetryData(r: TelemetryRecord, fcVariant = 'INAV'): Telemet
       snrDb: r.link_snr ?? null,
     },
 
+    // Servo PWM is live-only (SERVO_OUTPUT_RAW); the flight log has no servo columns.
+    servoPwm: new Array(16).fill(0),
+
     // Status
     // `state_flags` is INAV's stateFlags bitfield and only blackbox imports populate it — the live
     // recorder has no source for it (`recorder.rs`) and stores NULL, which left every replayed live

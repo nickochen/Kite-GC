@@ -63,6 +63,7 @@ use commands::rc::{
 use commands::safehome::{safehome_read_all, safehome_write_all};
 use commands::geozone::{geozone_read_all, geozone_write_all};
 use commands::fence::{fence_read_all, fence_write_all};
+use commands::servo::servo_read_limits;
 use commands::rally::{rally_read_all, rally_write_all};
 use commands::info::{get_app_version, is_debug_mode};
 use commands::system::system_on_battery;
@@ -660,6 +661,7 @@ pub fn run() {
             geozone_write_all,
             fence_read_all,
             fence_write_all,
+            servo_read_limits,
             rally_read_all,
             rally_write_all,
         ])

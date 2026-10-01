@@ -142,6 +142,9 @@ fn handler_loop(
     let mut seq = MavSequence::new();
     let mut buf = [0u8; 1024];
     let mut last_heartbeat = Instant::now() - HEARTBEAT_INTERVAL; // Send immediately
+    // SERVO_OUTPUT_RAW accumulation: 16-channel PWM cache, emitted throttled ~5 Hz
+    // as the "telemetry-servo" event inside dispatch_message below.
+    let mut servo = ServoState::new();
     let mut msg_count: u64 = 0;
     let mut debug_tracker = super::debug::MavlinkDebugTracker::new();
     // Always-on link-rate meter (release too) — feeds the Relay panel's live RX/TX readout.
@@ -390,7 +393,7 @@ fn handler_loop(
                         continue;
                     }
 
-                    dispatch_message(&frame.header, &frame.message, &fc_variant, &app_handle, &mut analog, &mut batteries, &mut fused, &mut quadplane_seen, &recorder);
+                    dispatch_message(&frame.header, &frame.message, &fc_variant, &app_handle, &mut analog, &mut batteries, &mut fused, &mut quadplane_seen, &recorder, &mut servo);
                 }
             }
             Err(crate::transport::TransportError::Timeout) => {}
@@ -547,7 +550,22 @@ struct FusedPos {
 /// Dispatch a received MAVLink message to the same Tauri events as the MSP scheduler.
 /// This ensures widgets/store work identically regardless of protocol.
 #[allow(clippy::too_many_arguments)] // dispatch helper threading the handler's mutable decode state
-fn dispatch_message(header: &MavHeader, message: &MavMessage, fc_variant: &str, app_handle: &AppHandle, analog: &mut AnalogState, batteries: &mut std::collections::BTreeMap<u8, BatteryInstanceData>, fused: &mut FusedPos, quadplane_seen: &mut bool, recorder: &Option<FlightRecorderHandle>) {
+/// SERVO_OUTPUT_RAW accumulation state. MAVLink carries the 16 servo PWMs in
+/// two 8-channel banks selected by `port` (0 = 1..8, 1 = 9..16); many stacks
+/// also put 9..16 in the extension fields of a single frame. We merge both into
+/// `cache` and throttle the `telemetry-servo` frontend event to ~5 Hz.
+struct ServoState {
+    last_emit: Instant,
+    cache: [u16; 16],
+}
+
+impl ServoState {
+    fn new() -> Self {
+        Self { last_emit: Instant::now(), cache: [0u16; 16] }
+    }
+}
+
+fn dispatch_message(header: &MavHeader, message: &MavMessage, fc_variant: &str, app_handle: &AppHandle, analog: &mut AnalogState, batteries: &mut std::collections::BTreeMap<u8, BatteryInstanceData>, fused: &mut FusedPos, quadplane_seen: &mut bool, recorder: &Option<FlightRecorderHandle>, servo: &mut ServoState) {
     match message {
         // ── HEARTBEAT → telemetry-status + telemetry-flightmode ─────
         MavMessage::HEARTBEAT(hb) => {
@@ -603,6 +621,28 @@ fn dispatch_message(header: &MavHeader, message: &MavMessage, fc_variant: &str, 
                 "active_wp_number": mc.seq,
                 "nav_state": 0u8, // ArduPilot has no INAV nav_state; mission detection uses flight mode
             }));
+        }
+
+        // ── SERVO_OUTPUT_RAW → telemetry-servo (throttled ~5 Hz) ──
+        MavMessage::SERVO_OUTPUT_RAW(s) => {
+            // port selects the 8-channel bank (0 = 1..8, 1 = 9..16); extension fields
+            // carry 9..16 in a single frame on most stacks
+            let base = (s.port.min(1) as usize) * 8;
+            let bank = [s.servo1_raw, s.servo2_raw, s.servo3_raw, s.servo4_raw,
+                        s.servo5_raw, s.servo6_raw, s.servo7_raw, s.servo8_raw];
+            servo.cache[base..base + 8].copy_from_slice(&bank);
+            let ext = [s.servo9_raw, s.servo10_raw, s.servo11_raw, s.servo12_raw,
+                       s.servo13_raw, s.servo14_raw, s.servo15_raw, s.servo16_raw];
+            if ext.iter().any(|&v| v != 0) {
+                servo.cache[8..16].copy_from_slice(&ext);
+            }
+            if servo.last_emit.elapsed() >= Duration::from_millis(200) {
+                servo.last_emit = Instant::now();
+                let _ = app_handle.emit("telemetry-servo", serde_json::json!({
+                    "pwm": servo.cache,
+                    "time_boot_ms": s.time_usec / 1000,
+                }));
+            }
         }
 
         // ── ATTITUDE → telemetry-attitude ───────────────────────────

@@ -89,6 +89,8 @@
   import { initPulseBlink } from "$lib/stores/pulseBlink";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import TerrainAnalysisPanel from "$lib/components/terrain/TerrainAnalysisPanel.svelte";
+  import V5FlightMonitor from "$lib/components/v5/V5FlightMonitor.svelte";
+  import { v5mode } from "$lib/stores/v5mode";
   import { editMode, replayActive, mission, missionFlags, missionDownload, missionUpload, missionFcInfo, markMissionSynced, loadedMissionId, missionSetWaypoints, launchPoint, hasLocation, toDeg, type Waypoint } from "$lib/stores/mission";
   import { pendingSystemSwitch, autopilotSystem, setAutopilotSystem, confirmSystemSwitch } from "$lib/stores/autopilotContext";
   import { arduMission, arduSelectedWpIndex, arduLoadedMissionId, type ArduWaypoint } from "$lib/stores/missionArdupilot";
@@ -2438,7 +2440,7 @@
 
 <svelte:window bind:innerWidth={winW} bind:innerHeight={winH} />
 
-<div class="ui-root" style:--ui-scale={uiScale}>
+<div class="ui-root" class:v5={$v5mode} style:--ui-scale={uiScale}>
   <!-- Window resize grips — outside `.ui-scale` so position:fixed stays viewport-relative.
        Re-adds edge resizing lost when the native decorations are disabled. -->
   <WindowResizeBorders />
@@ -2545,7 +2547,14 @@
   style:--grid-bottom-height={gridBottomHeight}
   style:--grid-side-width={gridSideWidth}
 >
-  <!-- ======= TOOLBAR ======= -->
+  <!-- ======= TOOLBAR (classic) / v5 FLIGHT MONITOR ======= -->
+  {#if $v5mode}
+    <V5FlightMonitor
+      onOpenPanel={selectTab}
+      onToggleClassic={() => v5mode.set(false)}
+      onTogglePanels={() => { navPanelOpen = !navPanelOpen; }}
+    />
+  {:else}
   <div class="zone-toolbar">
     <Toolbar
     {appVersion}
@@ -2571,6 +2580,7 @@
   />
     <RelayPanel open={relayPanelOpen} />
   </div>
+  {/if}
 
   <!-- ======= MAP (always fullscreen behind everything) ======= -->
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -3024,6 +3034,25 @@
      and tapping it navigates the whole webview to an inescapable page. (Stays on the full map.) */
   .layer-map.in-frame :global(.leaflet-control-attribution) {
     display: none;
+  }
+  /* ======= v5 flight-monitor layout ======= */
+  /* Hide the classic chrome zones; the v5 grid (V5FlightMonitor) replaces them.
+     Floating panels / dialogs / toasts / FloatingVideoWindow stay mounted and usable. */
+  .ui-root.v5 .zone-bottom-dock,
+  .ui-root.v5 .zone-side-dock,
+  .ui-root.v5 .zone-map-controls,
+  .ui-root.v5 .zone-status-bar,
+  .ui-root.v5 :global(.nav-rail) {
+    display: none;
+  }
+  /* Inset the map into the v5 center cell (320px side panels + 12px gaps + 12px page padding).
+     Map.svelte observes resizes and calls invalidateSize itself. */
+  .ui-root.v5 .layer-map:not(.in-frame) {
+    top: 80px;
+    left: 344px;
+    right: 344px;
+    bottom: 100px;
+    border-radius: 14px;
   }
   /* Toasts & alerts container — pinned to the app frame's top, above the map/video layers (z2/z0) so
      banners are never tied to (or clipped by) a shrunken in-frame map. Zero-height (children are

@@ -1863,5 +1863,63 @@
     "km": "km",
     "kmh": "km/h",
     "ms": "m/s"
+  },
+  "v5": {
+    "topbar": {
+      "title": "倾转旋翼 Y3 飞行监控",
+      "linkConnected": "链路已连接",
+      "linkDown": "链路未连接",
+      "gpsNoFix": "GPS 无定位",
+      "paramProtect": "参数保护",
+      "unknown": "未知",
+      "flightTime": "飞行计时",
+      "onboard": "机载",
+      "classicUi": "经典界面",
+      "panels": "功能面板"
+    },
+    "telemetry": {
+      "title": "遥测数据",
+      "flightState": "飞行状态",
+      "flying": "飞行中",
+      "standby": "待命",
+      "curMode": "当前模式",
+      "altitude": "高度",
+      "airspeed": "空速",
+      "groundspeed": "地速",
+      "battery": "电池",
+      "remaining": "剩余电量",
+      "used": "已用",
+      "link": "链路",
+      "linkQuality": "信号链路质量",
+      "wind": "风速",
+      "windDir": "风向",
+      "log": "系统日志",
+      "noLog": "暂无日志"
+    },
+    "vtol": {
+      "title": "倾转 & VTOL",
+      "roll": "横滚",
+      "pitch": "俯仰",
+      "yaw": "偏航",
+      "heading": "航向",
+      "tiltTransition": "倾转过渡状态",
+      "tiltServoFL": "左前倾转舵机",
+      "tiltServoFR": "右前倾转舵机",
+      "noData": "待飞控数据",
+      "mode": "模式",
+      "tiltServoCh": "倾转舵机通道",
+      "channel": "通道",
+      "unset": "未设置",
+      "tiltProgress": "倾转进度",
+      "fwdUs": "平飞位PWM",
+      "hovUs": "悬停位PWM",
+      "calHint": "校验：倾转到平飞位应≈0°，悬停位应≈90°；反了就对调两个PWM值",
+      "toLevel": "倾转 → 平飞"
+    },
+    "modebar": {
+      "emergency": "紧急措施",
+      "emergencyHint": "按住 1.5 秒强制停转电机",
+      "safety": "安全"
+    }
   }
 }

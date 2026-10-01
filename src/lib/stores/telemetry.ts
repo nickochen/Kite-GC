@@ -81,6 +81,9 @@ export interface TelemetryData {
   // RC link statistics (RSSI / LQ / SNR — protocol-dependent, see LinkStats)
   link: LinkStats;
 
+  // Servo outputs (µs PWM, 16 ch — from SERVO_OUTPUT_RAW, ~5 Hz; 0 = no data yet)
+  servoPwm: number[];
+
   // Status
   armingFlags: number;
   cpuLoad: number;
@@ -141,6 +144,7 @@ const defaultTelemetry: TelemetryData = {
   throttle: 0,
   batteries: [],
   link: { rssiPercent: null, rssiDbm: null, lq: null, snrDb: null },
+  servoPwm: new Array(16).fill(0),
   armingFlags: 0, cpuLoad: 0, sensorStatus: 0, flightModeFlags: 0, mspRcOverride: false,
   sensorGyro: 0, sensorAcc: 0, sensorMag: 0, sensorBaro: 0,
   sensorGps: 0, sensorRangefinder: 0, sensorPitot: 0, sensorOpflow: 0, sensorRcReceiver: 0, prearmHealthy: 0,
@@ -273,6 +277,18 @@ export async function startTelemetryListeners() {
         roll: event.payload.roll,
         pitch: event.payload.pitch,
         yaw: event.payload.yaw,
+        lastUpdate: Date.now(),
+      }));
+    })
+  );
+
+  unlisteners.push(
+    await listen<{ pwm: number[]; time_boot_ms: number }>('telemetry-servo', (event) => {
+      const pwm = event.payload.pwm;
+      if (!Array.isArray(pwm) || pwm.length === 0) return;
+      telemetry.update((t) => ({
+        ...t,
+        servoPwm: pwm.slice(0, 16),
         lastUpdate: Date.now(),
       }));
     })

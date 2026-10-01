@@ -20,6 +20,7 @@ pub mod radar;
 pub mod rally;
 pub mod rc;
 pub mod safehome;
+pub mod servo;
 pub mod system;
 pub mod terrain;
 pub mod tiles;

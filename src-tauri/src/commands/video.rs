@@ -364,6 +364,36 @@ pub fn video_rtsp_mjpeg_start(
         Err(e) => log::debug!("[video] no MJPEG track in the source ({e}) — transcoding instead"),
     }
 
+    // H.265-only links (the FPV case): the WebView plays no HEVC and the ffmpeg templates below
+    // only decode H.264, so without this the picture is simply black. GStreamer owns the RTSP
+    // session and the H.265 decode — the way Mission Planner does — and hands JPEG frames to the
+    // same MJPEG broadcast; the H.264 path below is untouched. Only attempted when the source
+    // probes as H.265, so a non-H.265 source never burns the first-frame window here.
+    //
+    // The hardware veto (`allow_hw_decode`) does not gate this path: GStreamer ranks its own
+    // decoders hardware-first and falls back to software by itself, and for an H.265 source the
+    // alternative is no picture at all — the veto chooses *how* to transcode, not whether to show
+    // video.
+    if crate::video::gstreamer::is_available() {
+        let h265 = crate::video::gstreamer::probe_video_codec(&url)
+            .is_some_and(|c| crate::video::gstreamer::is_h265(&c));
+        // No ffprobe to ask (or nothing readable yet): try anyway — a non-H.265 source fails on
+        // the first-frame timeout and falls through to the ffmpeg templates below.
+        if h265 || crate::video::ffmpeg::find_ffprobe().is_none() {
+            let gst = MjpegSource::Rtsp { url: &url, transcode: RtspTranscode::GStreamer };
+            match mjpeg.start(ended_hook(&app), &gst) {
+                Ok(port) => {
+                    let dec = crate::video::gstreamer::best_h265_decoder().unwrap_or("?");
+                    log::info!("[video] RTSP H.265 via GStreamer [{dec}] → MJPEG");
+                    return Ok(reply(port, RtspTranscode::GStreamer));
+                }
+                Err(e) => log::debug!("[video] GStreamer H.265 path failed ({e}) — ffmpeg next"),
+            }
+        } else {
+            log::debug!("[video] source is not H.265 — skipping the GStreamer path");
+        }
+    }
+
     // V4L2 M2M is the Pi-class path (hardware decode only, no MJPEG encoder exists for it); VAAPI is
     // the desktop-GPU one and does the whole chain. Probed in that order — on a Raspberry Pi a render
     // node exists with no VAAPI driver behind it, so asking there probes hardware that cannot answer.

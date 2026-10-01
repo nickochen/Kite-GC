@@ -278,8 +278,8 @@
   // On the image path this used to read "MJPEG" for every source, because MJPEG is what reaches the
   // screen — true, and not what the user is asking. The transcode verdict answers the real question:
   // the backend only gets `copy` when the mpjpeg muxer accepted the source's own packets, which no
-  // codec but MJPEG survives. Anything else was decoded and re-encoded, and the only other codec Kite
-  // supports over RTSP is H.264.
+  // codec but MJPEG survives. Anything else was decoded and re-encoded: H.264 through the ffmpeg
+  // templates, H.265 through GStreamer.
   //
   // Both ends are named on the transcode path, because the bitrate next to it is the MJPEG one and
   // reading a source's codec beside the pipeline's output rate is how "3 Mbit H.264" turns into a
@@ -289,7 +289,8 @@
     const s = $videoState;
     if (s.kind !== 'rtsp' || s.status !== 'live') return null;
     if (!s.mjpegUrl) return $videoRtcStats?.codec ?? null;
-    return s.activeTranscode === 'copy' ? 'MJPEG' : 'H.264 → MJPEG';
+    if (s.activeTranscode === 'copy') return 'MJPEG';
+    return s.activeTranscode === 'gstreamer' ? 'H.265 → MJPEG' : 'H.264 → MJPEG';
   });
   const streamBitrate = $derived.by(() => {
     const s = $videoState;
@@ -307,7 +308,7 @@
   //     drawn into a canvas. That canvas is its own compositing layer, but it is still not a hardware
   //     video surface, which is what this badge is about.
   // A `<video>` feed transcodes nothing (the WebView decodes it), so it shows only the surface badge.
-  const TRANSCODE_LABEL: Record<string, string> = { vaapi: 'VAAPI', v4l2m2m: 'V4L2' };
+  const TRANSCODE_LABEL: Record<string, string> = { vaapi: 'VAAPI', v4l2m2m: 'V4L2', gstreamer: 'GStreamer' };
   const pipeline = $derived.by(():
     | { method: string; transcode: string | null; transcodeHw: boolean; surfaceHw: boolean }
     | null => {
@@ -318,13 +319,15 @@
       const engine = mode ? TRANSCODE_LABEL[mode] : undefined;
       const via = engine ?? (mode === 'copy' ? $t('video.pipeline.copy') : undefined);
       return {
-        // Always ffmpeg: the image path reads the source itself and broadcasts `-f mpjpeg` through
-        // Kite's own server. It used to run through go2rtc, whose republish was measured as the
-        // cause of the freezes, and naming go2rtc here now would point at the wrong component.
-        method: `ffmpeg → MJPEG${via ? ` (${via})` : ''}`,
+        // The image path reads the source itself and broadcasts multipart JPEG through Kite's own
+        // server — ffmpeg for MJPEG/H.264, GStreamer for H.265. It used to run through go2rtc,
+        // whose republish was measured as the cause of the freezes, and naming go2rtc here now
+        // would point at the wrong component.
+        method: mode === 'gstreamer' ? 'GStreamer → MJPEG' : `ffmpeg → MJPEG${via ? ` (${via})` : ''}`,
         transcode: mode,
         // A stream copy is better than hardware — there is nothing to accelerate — so it counts as
-        // "not costing us anything", not as a software fallback.
+        // "not costing us anything", not as a software fallback. GStreamer ranks its own decoders
+        // hardware-first, so it counts as hardware-backed too (the exact element is in the log).
         transcodeHw: !!engine || mode === 'copy',
         surfaceHw: false,
       };

@@ -60,6 +60,32 @@ pub fn find_ffmpeg() -> Option<PathBuf> {
     None
 }
 
+/// Discover ffprobe: the BtbN builds we fetch ship it next to ffmpeg, so look beside a found
+/// ffmpeg first, then PATH. `None` is fine — codec probing degrades to "try GStreamer and see".
+pub fn find_ffprobe() -> Option<PathBuf> {
+    let name = if cfg!(target_os = "windows") {
+        "ffprobe.exe"
+    } else {
+        "ffprobe"
+    };
+    if let Some(ff) = find_ffmpeg() {
+        if let Some(dir) = ff.parent() {
+            let c = dir.join(name);
+            if c.is_file() {
+                return Some(c);
+            }
+        }
+    }
+    let path_var = std::env::var_os("PATH")?;
+    for d in std::env::split_paths(&path_var) {
+        let c = d.join(name);
+        if c.is_file() {
+            return Some(c);
+        }
+    }
+    None
+}
+
 /// First line of `ffmpeg -version` (e.g. "ffmpeg version n7.1 ..."), or None if absent/failed.
 pub fn version() -> Option<String> {
     let ff = find_ffmpeg()?;

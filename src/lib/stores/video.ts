@@ -42,8 +42,9 @@ export type CameraFps = 'auto' | '30' | '60';
 /** Source kind: local camera (getUserMedia MediaStream), RTSP bridge (go2rtc), or native hardware
  *  capture (V4L2 / DirectShow / AVFoundation → embedded MJPEG server). */
 export type VideoKind = 'camera' | 'rtsp' | 'native';
-/** Which go2rtc reader served the live RTSP feed: native client or the ffmpeg fallback. */
-export type RtspEngine = 'native' | 'ffmpeg' | null;
+/** Which reader served the live RTSP feed: go2rtc's native client, the ffmpeg fallback, or the
+ *  GStreamer H.265 reader (MJPEG image path). */
+export type RtspEngine = 'native' | 'ffmpeg' | 'gstreamer' | null;
 /** RTSP transport for a connection. 'udp' → ffmpeg reader (reads UDP-only servers like the UAV-Link
  *  Pi); 'tcp' → go2rtc's native RTP-over-TCP client; 'auto' → native first, then the ffmpeg fallback. */
 export type RtspTransport = 'udp' | 'tcp' | 'auto';
@@ -98,9 +99,10 @@ export interface VideoState {
   /** go2rtc MJPEG HTTP URL for systems where RTCPeerConnection is unavailable. */
   mjpegUrl: string | null;
   /** What the RUNNING feed actually does, as reported by the backend: 'copy' (stream-copied, nothing
-   *  to accelerate), 'software', 'vaapi', 'v4l2m2m', 'none' (no transcode at all — WebRTC), or null
-   *  when nothing is live. Runtime-only. Reported rather than inferred: whether this host *can* do
-   *  hardware and whether this feed *is* using it are different questions. */
+   *  to accelerate), 'software', 'vaapi', 'v4l2m2m', 'gstreamer' (H.265 via GStreamer), 'none' (no
+   *  transcode at all — WebRTC), or null when nothing is live. Runtime-only. Reported rather than
+   *  inferred: whether this host *can* do hardware and whether this feed *is* using it are different
+   *  questions. */
   activeTranscode: string | null;
   /** User veto on hardware transcoding: force the software path even where the backend's probe says
    *  hardware works. An escape hatch for driver/hardware combinations we can't anticipate — hardware
@@ -667,8 +669,9 @@ async function startMjpegPath(url: string, requireCopy = false): Promise<boolean
       void stopNativeMjpeg();
       return true; // not a failure — the user stopped it
     }
-    // 'ffmpeg', always: this path IS an ffmpeg reader, whatever the transport setting says.
-    patch({ status: 'live', mjpegUrl: res.url, activeTranscode: res.transcode, error: null, rtspEngine: 'ffmpeg', reconnecting: false, reconnectAttempt: 0 });
+    // The reader is whatever the backend actually ran: ffmpeg for the copy/transcode templates,
+    // GStreamer for the H.265 path.
+    patch({ status: 'live', mjpegUrl: res.url, activeTranscode: res.transcode, error: null, rtspEngine: res.transcode === 'gstreamer' ? 'gstreamer' : 'ffmpeg', reconnecting: false, reconnectAttempt: 0 });
     return true;
   } catch (e) {
     logVideo('warn', `RTSP (MJPEG path) failed: ${e instanceof Error ? e.message : String(e)}`);

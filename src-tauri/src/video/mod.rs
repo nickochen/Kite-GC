@@ -10,6 +10,7 @@
 
 pub mod ffmpeg;
 pub mod go2rtc;
+pub mod gstreamer;
 pub mod native;
 /// V4L2 device enumeration is Linux-only (reads `/sys/class/video4linux`); `native` uses it there.
 #[cfg(target_os = "linux")]
